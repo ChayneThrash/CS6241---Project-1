@@ -106,10 +106,15 @@ namespace {
 
           // There is an edge case where the query may becomes resolved instantly. If this is case, just add the branch exit edges to all of the output sets.
           if (b == &basicBlock && currentValue == initialQuery) {
-            if (resolution == QueryTrue || resolution == QueryFalse) {
+            if (resolution == QueryTrue) {
               result.startSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
               result.presentSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
               result.endSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
+            }
+            else if (resolution == QueryFalse) {
+              result.startSet[std::make_pair(&basicBlock, falseDestination)] = std::make_pair(initialQuery, QueryFalse);
+              result.presentSet[std::make_pair(&basicBlock, falseDestination)] = std::make_pair(initialQuery, QueryFalse);
+              result.endSet[std::make_pair(&basicBlock, falseDestination)] = std::make_pair(initialQuery, QueryFalse); 
             }
             return;
           }
