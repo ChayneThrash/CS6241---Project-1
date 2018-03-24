@@ -22,7 +22,19 @@ using namespace llvm;
 namespace {
 
 
-  enum QueryOperator { IsTrue, AreEqual, AreNotEqual };
+  enum QueryOperator { 
+    IsTrue, 
+    AreEqual, 
+    AreNotEqual, 
+    IsSignedGreaterThan, 
+    IsUnsignedGreaterThan, 
+    IsSignedLessThan, 
+    IsUnsignedLessThan, 
+    IsSignedGreaterThanOrEqual, 
+    IsUnsignedGreaterThanOrEqual,
+    IsSignedLessThanOrEqual,
+    IsUnsignedLessThanOrEqual
+  };
 
   enum QueryResolution { QueryTrue, QueryFalse, QueryUndefined };
 
@@ -228,14 +240,14 @@ namespace {
                 if (!isa<ConstantInt>(i.getOperand(1))) {
                   q.lhs = i.getOperand(1);
                   q.rhs = dyn_cast<ConstantInt>(i.getOperand(0));
-                  q.queryOperator = cmpInstruction->isEquality() ? AreEqual : AreNotEqual;
+                  q.queryOperator = reverseComparison(getQueryOperatorForPredicate(cmpInstruction->getPredicate()));
                 }
               }
               else if (isa<ConstantInt>(i.getOperand(1))){
                 if (!isa<ConstantInt>(i.getOperand(0))) {
                   q.lhs = i.getOperand(0);
                   q.rhs = dyn_cast<ConstantInt>(i.getOperand(1));
-                  q.queryOperator = cmpInstruction->isEquality() ? AreEqual : AreNotEqual;
+                  q.queryOperator = getQueryOperatorForPredicate(cmpInstruction->getPredicate());
                 }
               }
             }
@@ -253,35 +265,8 @@ namespace {
 
           if (isa<ConstantInt>(i.getOperand(0))) {
             auto *constantValue = dyn_cast<ConstantInt>(i.getOperand(0));
-
-            if (q.queryOperator == IsTrue) {
-              if (constantValue->isZero()) {
-                resolution = QueryFalse;
-              }
-              else {
-                resolution = QueryTrue;
-              }
-              return true;
-            }
-            else if (q.queryOperator == AreEqual) {
-              if (q.rhs == constantValue) {
-                resolution = QueryTrue;
-              }
-              else {
-                resolution = QueryFalse;
-              }
-              return true;
-            }
-            else if (q.queryOperator == AreNotEqual) {
-              if (q.rhs != constantValue) {
-                resolution = QueryTrue;
-              }
-              else {
-                resolution = QueryFalse;
-              }
-              return true;
-            }
-            break;
+            resolution = resolveConstantAssignment(constantValue, q);
+            return true;
           }
           else {
             q.lhs = i.getOperand(0);
@@ -310,34 +295,24 @@ namespace {
 
               if (isa<ConstantInt>(i.getOperand(0))) {
                 if (isa<ConstantInt>(i.getOperand(1))) {
-                  if (cmpInstruction->isEquality()) {
-                    resolution = (i.getOperand(0) == i.getOperand(1)) ? QueryTrue : QueryFalse;
-                  }
-                  else {
-                    resolution = (i.getOperand(0) != i.getOperand(1)) ? QueryTrue : QueryFalse; 
-                  }
+                  resolution = getQueryResolutionForConstantComparison(*cmpInstruction);
                   return true;
                 }
                 else {
                   q.lhs = i.getOperand(1);
                   q.rhs = dyn_cast<ConstantInt>(i.getOperand(0));
-                  q.queryOperator = cmpInstruction->isEquality() ? AreEqual : AreNotEqual;
+                  q.queryOperator = reverseComparison(getQueryOperatorForPredicate(cmpInstruction->getPredicate()));
                 }
               }
               else if (isa<ConstantInt>(i.getOperand(1))){
                 if (isa<ConstantInt>(i.getOperand(0))) {
-                  if (cmpInstruction->isEquality()) {
-                    resolution = (i.getOperand(0) == i.getOperand(1)) ? QueryTrue : QueryFalse;
-                  }
-                  else {
-                    resolution = (i.getOperand(0) != i.getOperand(1)) ? QueryTrue : QueryFalse; 
-                  }
+                  resolution = getQueryResolutionForConstantComparison(*cmpInstruction);
                   return true;
                 }
                 else {
                   q.lhs = i.getOperand(0);
                   q.rhs = dyn_cast<ConstantInt>(i.getOperand(1));
-                  q.queryOperator = cmpInstruction->isEquality() ? AreEqual : AreNotEqual;
+                  q.queryOperator = getQueryOperatorForPredicate(cmpInstruction->getPredicate());
                 }
               }
               else {
@@ -353,6 +328,72 @@ namespace {
         }
       }
       return false;
+    }
+
+    QueryResolution resolveConstantAssignment(ConstantInt* constant, Query& q) {
+      switch(q.queryOperator)
+      {
+        case IsTrue: return (constant->isZero()) ? QueryFalse : QueryTrue;
+        case AreEqual: return (q.rhs->getValue() == constant->getValue()) ? QueryTrue : QueryFalse;
+        case AreNotEqual: return (q.rhs->getValue() != constant->getValue()) ? QueryTrue : QueryFalse;
+        default: return getQueryResolutionForConstantComparison(constant, q.rhs, q.queryOperator);
+      }
+    }
+
+    QueryResolution getQueryResolutionForConstantComparison(ICmpInst& i) {
+      ConstantInt* c1 = dyn_cast<ConstantInt>(i.getOperand(0));
+      ConstantInt* c2 = dyn_cast<ConstantInt>(i.getOperand(1));
+      return getQueryResolutionForConstantComparison(c1, c2, getQueryOperatorForPredicate(i.getPredicate()));
+    }
+
+    QueryResolution getQueryResolutionForConstantComparison(ConstantInt* c1, ConstantInt* c2, QueryOperator qOp) {
+      switch(qOp)
+      {
+        case AreEqual: return (c1->getValue() == c2->getValue()) ? QueryTrue : QueryFalse;
+        case AreNotEqual: return (c1->getValue() != c2->getValue()) ? QueryTrue : QueryFalse; 
+        case IsSignedGreaterThan: return (c1->getValue().sgt(c2->getValue())) ? QueryTrue : QueryFalse;
+        case IsUnsignedGreaterThan: return (c1->getValue().ugt(c2->getValue())) ? QueryTrue : QueryFalse;
+        case IsSignedGreaterThanOrEqual: return (c1->getValue().sge(c2->getValue())) ? QueryTrue : QueryFalse;
+        case IsUnsignedGreaterThanOrEqual: return (c1->getValue().uge(c2->getValue())) ? QueryTrue : QueryFalse;
+        case IsSignedLessThan: return (c1->getValue().slt(c2->getValue())) ? QueryTrue : QueryFalse;
+        case IsUnsignedLessThan: return (c1->getValue().ult(c2->getValue())) ? QueryTrue : QueryFalse;
+        case IsSignedLessThanOrEqual: return (c1->getValue().sle(c2->getValue())) ? QueryTrue : QueryFalse;
+        case IsUnsignedLessThanOrEqual: return (c1->getValue().ule(c2->getValue())) ? QueryTrue : QueryFalse;
+        default: return QueryUndefined;
+      }
+    }
+
+    QueryOperator getQueryOperatorForPredicate(ICmpInst::Predicate p) {
+      switch(p) {
+        case ICmpInst::ICMP_EQ: return AreEqual;
+        case ICmpInst::ICMP_NE: return AreNotEqual;
+        case ICmpInst::ICMP_SGT: return IsSignedGreaterThan;
+        case ICmpInst::ICMP_UGT: return IsUnsignedGreaterThan;
+        case ICmpInst::ICMP_SGE: return IsSignedGreaterThanOrEqual;
+        case ICmpInst::ICMP_UGE: return IsUnsignedGreaterThanOrEqual;
+        case ICmpInst::ICMP_SLT: return IsSignedLessThan;
+        case ICmpInst::ICMP_ULT: return IsUnsignedLessThan;
+        case ICmpInst::ICMP_SLE: return IsSignedLessThanOrEqual;
+        case ICmpInst::ICMP_ULE: return IsUnsignedLessThanOrEqual;
+        default: return IsTrue;
+      }
+    }
+
+    QueryOperator reverseComparison(QueryOperator qOp) {
+      switch(qOp)
+      {
+        case AreEqual: return AreEqual;
+        case AreNotEqual: return AreNotEqual;
+        case IsSignedGreaterThan: return IsSignedLessThanOrEqual;
+        case IsUnsignedGreaterThan: return IsUnsignedLessThanOrEqual;
+        case IsSignedGreaterThanOrEqual: return IsSignedLessThan;
+        case IsUnsignedGreaterThanOrEqual: return IsUnsignedLessThan;
+        case IsSignedLessThan: return IsUnsignedGreaterThanOrEqual;
+        case IsUnsignedLessThan: return IsUnsignedGreaterThanOrEqual;
+        case IsSignedLessThanOrEqual: return IsSignedGreaterThan;
+        case IsUnsignedLessThanOrEqual: return IsUnsignedGreaterThan;
+        default: return IsTrue;
+      }
     }
 
   };
