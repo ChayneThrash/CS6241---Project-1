@@ -24,7 +24,7 @@ namespace {
         detector.detectPaths(b, result);
 
         errs()<< "Start set: ";
-        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::pair<Value*, QueryResolution>> startingPoints : result.startSet) {
+        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> startingPoints : result.startSet) {
           if (startingPoints.second.second == QueryUndefined) {
             errs() << "wtf?";
           }
@@ -39,7 +39,7 @@ namespace {
         errs()<< "\n";
 
         errs()<< "Present set: ";
-        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::pair<Value*, QueryResolution>> presentPoints : result.presentSet) {
+        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> presentPoints : result.presentSet) {
           if (presentPoints.second.second == QueryUndefined) {
             errs() << "wtf?";
           }
@@ -54,7 +54,7 @@ namespace {
         errs()<< "\n";
 
         errs()<< "End set: ";
-        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::pair<Value*, QueryResolution>> endPoints : result.endSet) {
+        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> endPoints : result.endSet) {
           if (endPoints.second.second == QueryUndefined) {
             errs() << "wtf?";
           }

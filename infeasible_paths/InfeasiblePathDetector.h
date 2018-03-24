@@ -32,19 +32,19 @@ namespace {
     QueryOperator queryOperator;
     ConstantInt* rhs;
 
-    bool operator==(const Query& other) {
+    bool operator==(const Query& other) const {
       return this->lhs == other.lhs && this->rhs == other.rhs && this->queryOperator == other.queryOperator;
     }
 
-    bool operator<(const Query& other) {
+    bool operator<(const Query& other) const {
       return (this->lhs < other.lhs) || (this->rhs == other.lhs && (this->queryOperator < other.queryOperator || (this->queryOperator == other.queryOperator && this->rhs < other.rhs)));
     }
   };
 
   struct  InfeasiblePathResult {
-    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Value*, QueryResolution>> startSet;
-    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Value*, QueryResolution>> presentSet;
-    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Value*, QueryResolution>> endSet;
+    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> startSet;
+    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> presentSet;
+    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> endSet;
   };
 
   class InfeasiblePathDetector {
@@ -103,6 +103,16 @@ namespace {
         else {
           queriesResolvedInNode.insert(std::make_pair(currentValue, b));
           queryResolutions[std::make_pair(currentValue, b)].insert(resolution);
+
+          // There is an edge case where the query may becomes resolved instantly. If this is case, just add the branch exit edges to all of the output sets.
+          if (b == &basicBlock && currentValue == initialQuery) {
+            if (resolution == QueryTrue || resolution == QueryFalse) {
+              result.startSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
+              result.presentSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
+              result.endSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
+            }
+            return;
+          }
         }
       }
 
@@ -239,7 +249,7 @@ namespace {
           if (isa<ConstantInt>(i.getOperand(0))) {
             auto *constantValue = dyn_cast<ConstantInt>(i.getOperand(0));
 
-            if (q.queryOperator == isTrue) {
+            if (q.queryOperator == IsTrue) {
               if (constantValue->isZero()) {
                 resolution = QueryFalse;
               }
@@ -250,7 +260,7 @@ namespace {
             }
             else if (q.queryOperator == AreEqual) {
               if (q.rhs == constantValue) {
-                resolution = queryTrue;
+                resolution = QueryTrue;
               }
               else {
                 resolution = QueryFalse;
@@ -259,7 +269,7 @@ namespace {
             }
             else if (q.queryOperator == AreNotEqual) {
               if (q.rhs != constantValue) {
-                resolution = queryTrue;
+                resolution = QueryTrue;
               }
               else {
                 resolution = QueryFalse;
