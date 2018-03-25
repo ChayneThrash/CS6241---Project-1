@@ -54,9 +54,9 @@ namespace {
   };
 
   struct  InfeasiblePathResult {
-    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> startSet;
-    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> presentSet;
-    std::map<std::pair<BasicBlock*, BasicBlock*>, std::pair<Query, QueryResolution>> endSet;
+    std::map<std::pair<BasicBlock*, BasicBlock*>, std::set<std::pair<Query, QueryResolution>>> startSet;
+    std::map<std::pair<BasicBlock*, BasicBlock*>, std::set<std::pair<Query, QueryResolution>>> presentSet;
+    std::map<std::pair<BasicBlock*, BasicBlock*>, std::set<std::pair<Query, QueryResolution>>> endSet;
   };
 
   class InfeasiblePathDetector {
@@ -119,14 +119,14 @@ namespace {
           // There is an edge case where the query may becomes resolved instantly. If this is case, just add the branch exit edges to all of the output sets.
           if (b == &basicBlock && currentValue == initialQuery) {
             if (resolution == QueryTrue) {
-              result.startSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
-              result.presentSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
-              result.endSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
+              result.startSet[std::make_pair(&basicBlock, trueDestination)].insert( std::make_pair(initialQuery, QueryTrue));
+              result.presentSet[std::make_pair(&basicBlock, trueDestination)].insert(std::make_pair(initialQuery, QueryTrue));
+              result.endSet[std::make_pair(&basicBlock, trueDestination)].insert(std::make_pair(initialQuery, QueryTrue));
             }
             else if (resolution == QueryFalse) {
-              result.startSet[std::make_pair(&basicBlock, falseDestination)] = std::make_pair(initialQuery, QueryFalse);
-              result.presentSet[std::make_pair(&basicBlock, falseDestination)] = std::make_pair(initialQuery, QueryFalse);
-              result.endSet[std::make_pair(&basicBlock, falseDestination)] = std::make_pair(initialQuery, QueryFalse); 
+              result.startSet[std::make_pair(&basicBlock, falseDestination)].insert(std::make_pair(initialQuery, QueryFalse));
+              result.presentSet[std::make_pair(&basicBlock, falseDestination)].insert(std::make_pair(initialQuery, QueryFalse));
+              result.endSet[std::make_pair(&basicBlock, falseDestination)].insert(std::make_pair(initialQuery, QueryFalse));
             }
             return;
           }
@@ -171,11 +171,11 @@ namespace {
 
       // Step 3
       if (queryResolutions[std::make_pair(initialQuery, &basicBlock)].count(QueryTrue) > 0) {
-        result.endSet[std::make_pair(&basicBlock, trueDestination)] = std::make_pair(initialQuery, QueryTrue);
+        result.endSet[std::make_pair(&basicBlock, trueDestination)].insert(std::make_pair(initialQuery, QueryTrue));
       }
 
       if (queryResolutions[std::make_pair(initialQuery, &basicBlock)].count(QueryFalse) > 0) {
-        result.endSet[std::make_pair(&basicBlock, falseDestination)] = std::make_pair(initialQuery, QueryFalse);
+        result.endSet[std::make_pair(&basicBlock, falseDestination)].insert(std::make_pair(initialQuery, QueryFalse));
       }
 
       for (std::pair<BasicBlock*, std::vector<Query>> visitedNode : visited) {
@@ -184,11 +184,11 @@ namespace {
           Query substitutedQuery = substitute(*b, query);
           for (BasicBlock* pred : predecessors(b)) {
             if (queryResolutions[std::make_pair(substitutedQuery, pred)].count(QueryTrue) > 0) {
-              result.presentSet[std::make_pair(pred, b)] = std::make_pair(substitutedQuery, QueryTrue);
+              result.presentSet[std::make_pair(pred, b)].insert(std::make_pair(substitutedQuery, QueryTrue));
             }
 
             if (queryResolutions[std::make_pair(substitutedQuery, pred)].count(QueryFalse) > 0) {
-              result.presentSet[std::make_pair(pred, b)] = std::make_pair(substitutedQuery, QueryFalse);
+              result.presentSet[std::make_pair(pred, b)].insert(std::make_pair(substitutedQuery, QueryFalse));
             }
 
             if (
@@ -196,14 +196,14 @@ namespace {
                 && queryResolutions[std::make_pair(substitutedQuery, pred)].size() == 1
                 && queryResolutions[std::make_pair(query, b)].size() > 1
               ) {
-              result.startSet[std::make_pair(pred, b)] = std::make_pair(substitutedQuery, QueryTrue);
+              result.startSet[std::make_pair(pred, b)].insert(std::make_pair(substitutedQuery, QueryTrue));
             }
             else if (
                   queryResolutions[std::make_pair(substitutedQuery, pred)].count(QueryFalse) > 0 
                 && queryResolutions[std::make_pair(substitutedQuery, pred)].size() == 1
                 && queryResolutions[std::make_pair(query, b)].size() > 1
               ) {
-              result.startSet[std::make_pair(pred, b)] = std::make_pair(substitutedQuery, QueryFalse);
+              result.startSet[std::make_pair(pred, b)].insert(std::make_pair(substitutedQuery, QueryFalse));
             }
           }
         }
@@ -333,9 +333,9 @@ namespace {
     QueryResolution resolveConstantAssignment(ConstantInt* constant, Query& q) {
       switch(q.queryOperator)
       {
-        case IsTrue: return (constant->isZero()) ? QueryFalse : QueryTrue;
-        case AreEqual: return (q.rhs->getValue() == constant->getValue()) ? QueryTrue : QueryFalse;
-        case AreNotEqual: return (q.rhs->getValue() != constant->getValue()) ? QueryTrue : QueryFalse;
+        case IsTrue: return (constant->isZero()) ? QueryTrue : QueryFalse;
+        case AreEqual: return (q.rhs->getValue() == constant->getValue()) ? QueryFalse : QueryTrue;
+        case AreNotEqual: return (q.rhs->getValue() != constant->getValue()) ? QueryFalse : QueryTrue;
         default: return getQueryResolutionForConstantComparison(constant, q.rhs, q.queryOperator);
       }
     }
@@ -349,16 +349,16 @@ namespace {
     QueryResolution getQueryResolutionForConstantComparison(ConstantInt* c1, ConstantInt* c2, QueryOperator qOp) {
       switch(qOp)
       {
-        case AreEqual: return (c1->getValue() == c2->getValue()) ? QueryTrue : QueryFalse;
-        case AreNotEqual: return (c1->getValue() != c2->getValue()) ? QueryTrue : QueryFalse; 
-        case IsSignedGreaterThan: return (c1->getValue().sgt(c2->getValue())) ? QueryTrue : QueryFalse;
-        case IsUnsignedGreaterThan: return (c1->getValue().ugt(c2->getValue())) ? QueryTrue : QueryFalse;
-        case IsSignedGreaterThanOrEqual: return (c1->getValue().sge(c2->getValue())) ? QueryTrue : QueryFalse;
-        case IsUnsignedGreaterThanOrEqual: return (c1->getValue().uge(c2->getValue())) ? QueryTrue : QueryFalse;
-        case IsSignedLessThan: return (c1->getValue().slt(c2->getValue())) ? QueryTrue : QueryFalse;
-        case IsUnsignedLessThan: return (c1->getValue().ult(c2->getValue())) ? QueryTrue : QueryFalse;
-        case IsSignedLessThanOrEqual: return (c1->getValue().sle(c2->getValue())) ? QueryTrue : QueryFalse;
-        case IsUnsignedLessThanOrEqual: return (c1->getValue().ule(c2->getValue())) ? QueryTrue : QueryFalse;
+        case AreEqual: return (c1->getValue() == c2->getValue()) ? QueryFalse : QueryTrue;
+        case AreNotEqual: return (c1->getValue() != c2->getValue()) ? QueryFalse : QueryTrue; 
+        case IsSignedGreaterThan: return (c1->getValue().sgt(c2->getValue())) ? QueryFalse : QueryTrue;
+        case IsUnsignedGreaterThan: return (c1->getValue().ugt(c2->getValue())) ? QueryFalse : QueryTrue;
+        case IsSignedGreaterThanOrEqual: return (c1->getValue().sge(c2->getValue())) ? QueryFalse : QueryTrue;
+        case IsUnsignedGreaterThanOrEqual: return (c1->getValue().uge(c2->getValue())) ? QueryFalse : QueryTrue;
+        case IsSignedLessThan: return (c1->getValue().slt(c2->getValue())) ? QueryFalse : QueryTrue;
+        case IsUnsignedLessThan: return (c1->getValue().ult(c2->getValue())) ? QueryFalse : QueryTrue;
+        case IsSignedLessThanOrEqual: return (c1->getValue().sle(c2->getValue())) ? QueryFalse : QueryTrue;
+        case IsUnsignedLessThanOrEqual: return (c1->getValue().ule(c2->getValue())) ? QueryFalse : QueryTrue;
         default: return QueryUndefined;
       }
     }
