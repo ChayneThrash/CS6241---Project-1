@@ -1,4 +1,5 @@
-#include "InfeasiblePathDetector.h"
+//#include "InfeasiblePathDetector.h"
+#include "InterproceduralInfeasiblePathDetector.h"
 using namespace llvm;
 
 namespace {
@@ -25,12 +26,12 @@ namespace {
 
         errs()<< "BasicBlock: " << b.getName();
         errs()<< " Start set: ";
-        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::set<std::pair<Query, QueryResolution>>> startingPoints : result.startSet) {
+        for(std::pair< std::pair<Node, Node>, std::set<std::pair<Query, QueryResolution>>> startingPoints : result.startSet) {
           for (std::pair<Query, QueryResolution> startValue : startingPoints.second) {
             if (startValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << startingPoints.first.first->getName() << "," << startingPoints.first.second->getName() << " R: ";
+            errs()<<"{e: " << startingPoints.first.first.basicBlock->getName() << "," << startingPoints.first.second.basicBlock->getName() << " R: ";
             if (startValue.second == QueryTrue) {
               errs() << "T}";
             }
@@ -43,12 +44,12 @@ namespace {
         errs()<< "\n";
 
         errs()<< "Present set: ";
-        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::set<std::pair<Query, QueryResolution>>> presentPoints : result.presentSet) {
+        for(std::pair< std::pair<Node, Node>, std::set<std::pair<Query, QueryResolution>>> presentPoints : result.presentSet) {
           for (std::pair<Query, QueryResolution> presentValue : presentPoints.second) {
             if (presentValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << presentPoints.first.first->getName() << "," << presentPoints.first.second->getName() << " R: ";
+            errs()<<"{e: " << presentPoints.first.first.basicBlock->getName() << "," << presentPoints.first.second.basicBlock->getName() << " R: ";
             if (presentValue.second == QueryTrue) {
               errs() << "T}";
             }
@@ -60,12 +61,12 @@ namespace {
         errs()<< "\n";
 
         errs()<< "End set: ";
-        for(std::pair< std::pair<BasicBlock*, BasicBlock*>, std::set<std::pair<Query, QueryResolution>>> endPoints : result.endSet) {
+        for(std::pair< std::pair<Node, Node>, std::set<std::pair<Query, QueryResolution>>> endPoints : result.endSet) {
           for (std::pair<Query, QueryResolution> endValue : endPoints.second) {
             if (endValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << endPoints.first.first->getName() << "," << endPoints.first.second->getName() << " R: ";
+            errs()<<"{e: " << endPoints.first.first.basicBlock->getName() << "," << endPoints.first.second.basicBlock->getName() << " R: ";
             if (endValue.second == QueryTrue) {
               errs() << "T}";
             }
