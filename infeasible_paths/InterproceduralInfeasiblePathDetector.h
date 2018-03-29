@@ -49,12 +49,20 @@ namespace {
       rhs = nullptr;
       queryOperator = IsTrue;
       isSummaryNodeQuery = false;
+      originalQuery = nullptr;
+    }
+
+    ~Query() {
+      if (originalQuery != nullptr) {
+        delete originalQuery;
+      }
     }
 
     Value* lhs;
     QueryOperator queryOperator;
     ConstantInt* rhs;
     bool isSummaryNodeQuery;
+    Query* originalQuery;
 
     bool operator==(const Query& other) const {
       return this->lhs == other.lhs && this->rhs == other.rhs && this->queryOperator == other.queryOperator && this->isSummaryNodeQuery == other.isSummaryNodeQuery;
@@ -129,17 +137,18 @@ namespace {
         BasicBlock* b = n.basicBlock;
         Query currentValue = workItem.second;
 
-        if(!resolve(*b, currentValue, resolution)) {
+        if(!resolve(n, currentValue, resolution)) {
           if (b == &(b->getParent()->getEntryBlock())) {
             queriesResolvedInNode.insert(std::make_pair(currentValue, n));
             queryResolutions[std::make_pair(currentValue, n)].insert(QueryUndefined);
           }
 
-          currentValue = substitute(*b, currentValue);
+          std::map<Node, Query> substituteMap;
+          substitute(n, currentValue, substituteMap);
           for(Node pred : n.getPredecessors()) {
-            if (std::find(visited[pred].begin(), visited[pred].end(), currentValue) == visited[pred].end()) {
-              visited[pred].push_back(currentValue);
-              worklist.push(std::make_pair(pred, currentValue));
+            if (std::find(visited[pred].begin(), visited[pred].end(), substituteMap[pred]) == visited[pred].end()) {
+              visited[pred].push_back(substituteMap[pred]);
+              worklist.push(std::make_pair(pred, substituteMap[pred]));
             }
           }
         }
@@ -186,9 +195,11 @@ namespace {
             continue;
           }
 
+          std::map<Node, Query> substituteMap;
+          substitute(n, query, substituteMap);
           for (Node pred : n.getPredecessors()) {
             size_t currentNumberResultsForBlock = queryResolutions[currentBlockAndQuery].size();
-            for(QueryResolution qr : queryResolutions[std::make_pair(substitute(*(n.basicBlock), query), pred)]) {
+            for(QueryResolution qr : queryResolutions[std::make_pair(substituteMap[pred], pred)]) {
               queryResolutions[currentBlockAndQuery].insert(qr);
             }
             if (queryResolutions[currentBlockAndQuery].size() > currentNumberResultsForBlock) {
@@ -212,8 +223,11 @@ namespace {
       for (std::pair<Node, std::vector<Query>> visitedNode : visited) {
         Node n = visitedNode.first;
         for (Query query : visitedNode.second) {
-          Query substitutedQuery = substitute(*(n.basicBlock), query);
+
+          std::map<Node, Query> substituteMap;
+          substitute(n, query, substituteMap);
           for (Node pred : n.getPredecessors()) {
+            Query substitutedQuery = substituteMap[pred];
             if (queryResolutions[std::make_pair(substitutedQuery, pred)].count(QueryTrue) > 0) {
               result.presentSet[std::make_pair(pred, n)].insert(std::make_pair(substitutedQuery, QueryTrue));
             }
@@ -242,12 +256,28 @@ namespace {
 
     }
 
-    Query substitute(BasicBlock& basicBlock, Query q) {
-      for (BasicBlock::reverse_iterator iIter = basicBlock.rbegin(); iIter != basicBlock.rend(); ++iIter) {
+    void substitute(Node& basicBlock, Query q, std::map<Node, Query>& querySubstitutedToPreds) {
+      for (Instruction* iIter : basicBlock.getReversedInstructions()) {
         Instruction& i = *iIter;
         if (i.getOpcode() == Instruction::Store && i.getOperand(1) == q.lhs) {
           if (!isa<ConstantInt>(i.getOperand(0))) {
             q.lhs = i.getOperand(0);
+          }
+        }
+        else if (i.getOpcode() == Instruction::Call) {
+          CallInst* callInst = dyn_cast<CallInst>(&i);
+          Function* f = callInst->getCalledFunction();
+          if (f != nullptr) {
+            for(Node n : basicBlock.getPredecessors()) {
+              Query summaryQuery = q;
+              q.isSummaryNodeQuery = true;
+              if (&i == q.lhs) {
+                ReturnInst* returnInst = dyn_cast<ReturnInst>(n.getReversedInstructions().front());
+                q.lhs = returnInst->getReturnValue();
+              }
+              querySubstitutedToPreds[n] = summaryQuery;
+              return;
+            }
           }
         }
         else if (q.lhs == &i) {
@@ -285,12 +315,14 @@ namespace {
           }
         }
       }
-      return q;
+      for (Node n : basicBlock.getPredecessors()) {
+        querySubstitutedToPreds[n] = q;
+      }
     }
 
 
-    bool resolve(BasicBlock& basicBlock, Query q, QueryResolution& resolution) {
-      for (BasicBlock::reverse_iterator iIter = basicBlock.rbegin(); iIter != basicBlock.rend(); ++iIter) {
+    bool resolve(Node& basicBlock, Query q, QueryResolution& resolution) {
+      for (Instruction* iIter : basicBlock.getReversedInstructions()) {
         Instruction& i = *iIter;
         if (i.getOpcode() == Instruction::Store && i.getOperand(1) == q.lhs) {
 
@@ -424,6 +456,13 @@ namespace {
         case IsSignedLessThanOrEqual: return IsSignedGreaterThan;
         case IsUnsignedLessThanOrEqual: return IsUnsignedGreaterThan;
         default: return IsTrue;
+      }
+    }
+
+    void getPredecessorsSkippingFunction(Node& n, std::vector<Node> predecessors) {
+      const std::vector<Node>& nodePredecessors = n.getPredecessors();
+      if (nodePredecessors.size() > 0) {
+        predecessors.push_back(*(nodePredecessors.front().parentNode));
       }
     }
 

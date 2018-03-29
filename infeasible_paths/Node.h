@@ -17,28 +17,70 @@
 using namespace llvm;
 
 Instruction* findFunctionCallTopDown(BasicBlock* b) {
-    for(Instruction& i : *b) {
-      if (i.getOpcode() == Instruction::Call) {
-        CallInst* callInst = dyn_cast<CallInst>(&i);
-        Function* f = callInst->getCalledFunction();
-        if (f != nullptr) {
-          return &i;
-        }
+  for(Instruction& i : *b) {
+    if (i.getOpcode() == Instruction::Call) {
+      CallInst* callInst = dyn_cast<CallInst>(&i);
+      Function* f = callInst->getCalledFunction();
+      if (f != nullptr) {
+        return &i;
       }
     }
-    return nullptr;
   }
+  return nullptr;
+}
 
 struct Node {
 
-  Node(BasicBlock* bb, Instruction* programPoint) : basicBlock(bb), programPointInBlock(programPoint), isExitOfAnotherFunction(false), successors(), predecessors(),
-                                                    successorsInitialized(false), predecessorsInitialized(false)
+  Node(BasicBlock* bb, Instruction* programPoint) : basicBlock(bb), programPointInBlock(programPoint), parentNode(nullptr), successors(), predecessors(),
+                                                    instructionsReversed(), successorsInitialized(false), predecessorsInitialized(false)
   {
+    if (programPointInBlock == nullptr) {
+      for (BasicBlock::reverse_iterator iIter = basicBlock->rbegin(); iIter != basicBlock->rend(); ++iIter) {
+        Instruction& i = *iIter;
+        instructionsReversed.push_back(&i);
+        if (i.getOpcode() == Instruction::Call) {
+          CallInst* callInst = dyn_cast<CallInst>(&i);
+          Function* f = callInst->getCalledFunction();
+          if (f != nullptr) {
+            break;
+          }
+        }
+      }
+    }
+    else {
+      bool programPointReached = false;
+      for (BasicBlock::reverse_iterator iIter = basicBlock->rbegin(); iIter != basicBlock->rend(); ++iIter) {
+        Instruction& i = *iIter;
+        if (!programPointReached) {
+          if (&i == programPointInBlock) {
+            programPointReached = true;  
+            instructionsReversed.push_back(&i);
+          }
+          continue;
+        }
+
+        instructionsReversed.push_back(&i);
+        if (i.getOpcode() == Instruction::Call) {
+          CallInst* callInst = dyn_cast<CallInst>(&i);
+          Function* f = callInst->getCalledFunction();
+          if (f != nullptr) {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  ~Node() {
+    if (parentNode != nullptr) {
+      delete parentNode;
+      parentNode = nullptr;
+    }
   }
 
   BasicBlock* basicBlock;
   Instruction* programPointInBlock;
-  bool isExitOfAnotherFunction;
+  Node* parentNode;
 
   const std::vector<Node>& getSuccessors() {
     if (!successorsInitialized) {
@@ -56,17 +98,17 @@ struct Node {
     return predecessors;
   }
 
+  const std::vector<Instruction*>& getReversedInstructions() {
+    return instructionsReversed;
+  }
+
   bool operator==(const Node& other) const {
-    return this->basicBlock == other.basicBlock && this->programPointInBlock == other.programPointInBlock && this->isExitOfAnotherFunction == other.isExitOfAnotherFunction;
+    return this->basicBlock == other.basicBlock && this->programPointInBlock == other.programPointInBlock;
   }
 
   bool operator<(const Node& other) const {
     if (this->basicBlock == other.basicBlock) {
       if (this->programPointInBlock == other.programPointInBlock) {
-        if (this->isExitOfAnotherFunction == other.isExitOfAnotherFunction) {
-          return false;
-        }
-        return this->isExitOfAnotherFunction < other.isExitOfAnotherFunction;
       }
       return this->programPointInBlock < other.programPointInBlock;
     }
@@ -78,6 +120,7 @@ struct Node {
 private:
   std::vector<Node> successors;
   std::vector<Node> predecessors;
+  std::vector<Instruction*> instructionsReversed;
   bool successorsInitialized;
   bool predecessorsInitialized;
 
@@ -91,7 +134,7 @@ private:
           Function* f = callInst->getCalledFunction();
           if (f != nullptr) {
             functionFound = true;
-            addFunctionExitBlocksToPredecessors(*f);
+            addFunctionExitBlocksToPredecessors(*f, callInst);
             break;
           }
         }
@@ -113,7 +156,7 @@ private:
           Function* f = callInst->getCalledFunction();
           if (f != nullptr) {
             functionFound = true;
-            addFunctionExitBlocksToPredecessors(*f);
+            addFunctionExitBlocksToPredecessors(*f, callInst);
             break;
           }
         }
@@ -121,13 +164,19 @@ private:
     }
 
     if (!functionFound) {
-      for(BasicBlock* pred : llvm::predecessors(basicBlock)) {
-        predecessors.push_back(Node(pred, nullptr));
+      if (basicBlock == &(basicBlock->getParent()->getEntryBlock()) && parentNode != nullptr) {
+        predecessors.push_back(*parentNode);
+      }
+      else {
+        for(BasicBlock* pred : llvm::predecessors(basicBlock)) {
+          predecessors.push_back(Node(pred, nullptr));
+        }
       }
     }
   }
 
   void populateSuccessors() {
+    
     if (programPointInBlock == nullptr) {
       for(BasicBlock* succ : llvm::successors(basicBlock)) {
         Instruction* functionCall = findFunctionCallTopDown(succ);
@@ -166,9 +215,11 @@ private:
     
   }
 
-  void addFunctionExitBlocksToPredecessors(Function& f) {
+  void addFunctionExitBlocksToPredecessors(Function& f, Instruction* callInstruction) {
     for(BasicBlock& b : f) {
       if (b.getTerminator()->getNumSuccessors() == 0) {
+        Node n(&b, nullptr);
+        n.parentNode = new Node(basicBlock, callInstruction);
         predecessors.push_back(Node(&b, nullptr));
       }
     }
