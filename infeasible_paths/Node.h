@@ -36,9 +36,22 @@ Instruction* findFunctionCallTopDown(BasicBlock* b) {
 
 struct Node {
 
+  Node(BasicBlock* bb, Instruction* programPoint, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes, Node* callSite) : Node(bb, programPoint, false, allNodes) {
+    predecessors.push_back(callSite);
+    predecessorsInitialized = true;
+    isEntryOfFunction = true;
+  }
+
+  Node(BasicBlock* bb, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes, Node* returnPoint) : Node(bb, nullptr, false, allNodes) {
+    successors.push_back(returnPoint);
+    successorsInitialized = true;
+    isExitOfFunction = true;
+  }
+
   Node(BasicBlock* bb, Instruction* programPoint, bool isStartingNode, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes) : 
         basicBlock(bb), programPointInBlock(programPoint), successors(), predecessors(),
-        instructionsReversed(), successorsInitialized(false), predecessorsInitialized(false) {
+        instructionsReversed(), successorsInitialized(false), predecessorsInitialized(false),
+        isExitOfFunction(false), isEntryOfFunction(true) {
     populateInstructionList();
     this->isStartingNode = isStartingNode;
     if (isStartingNode) {
@@ -130,6 +143,14 @@ struct Node {
     return (*allNodes)[std::make_pair(falseDestination, i)];
   }
 
+  void addPredecessor(Node* node) {
+    predecessors.push_back(node);
+  }
+
+  void addSuccessor(Node* node) {
+    successors.push_back(node);
+  }
+
 private:
   std::vector<Node*> successors;
   std::vector<Node*> predecessors;
@@ -138,6 +159,9 @@ private:
   bool predecessorsInitialized;
   bool isStartingNode;
   std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes;
+  bool isExitOfFunction;
+  bool isEntryOfFunction;
+
 
   void populatePredecessors() {
     bool functionFound = false;
@@ -150,6 +174,8 @@ private:
           if (f != nullptr) {
             functionFound = true;
             addFunctionExitBlocksToPredecessors(*f, callInst);
+            Node* callSite = getOrCreateNode(basicBlock, &i);
+            createFunctionEntryNode(f, callSite);
             break;
           }
         }
@@ -172,6 +198,8 @@ private:
           if (f != nullptr) {
             functionFound = true;
             addFunctionExitBlocksToPredecessors(*f, callInst);
+            Node* callSite = getOrCreateNode(basicBlock, &i);
+            createFunctionEntryNode(f, callSite);
             break;
           }
         }
@@ -193,32 +221,19 @@ private:
       }
     }
     else {
-      bool functionFound = false;
-      bool programPointReached = false;
       for (Instruction& i : *basicBlock) {
-        if (!programPointReached) {
-          if (&i == programPointInBlock) {
-            programPointReached = true;  
-          }
-          continue;
-        }
-
-        if (i.getOpcode() == Instruction::Call) {
+        if (&i == programPointInBlock) {
           CallInst* callInst = dyn_cast<CallInst>(&i);
           Function* f = callInst->getCalledFunction();
-          if (f != nullptr) {
-            Instruction* functionCall = findFunctionCallTopDown(&(f->getEntryBlock()));
-            addSuccessor(&(f->getEntryBlock()), functionCall);
-            functionFound = true;
-            break;
-          }
-        }
-      }
-      if (!functionFound) {
-        for(BasicBlock* succ : llvm::successors(basicBlock)) {
-          addSuccessor(succ, findFunctionCallTopDown(succ));
-        }
 
+          Node* entryNode = createFunctionEntryNode(f, this);
+          addSuccessor(entryNode);
+
+          Instruction* nextFunctionCall = findNextFunctionCallAfter(basicBlock, programPointInBlock);
+          Node* returnToPoint = getOrCreateNode(basicBlock, nextFunctionCall);
+          createFunctionExitNodes(returnToPoint, f);
+          break;
+        }
       }
     }
   }
@@ -284,9 +299,72 @@ private:
   void addFunctionExitBlocksToPredecessors(Function& f, Instruction* callInstruction) {
     for(BasicBlock& b : f) {
       if (b.getTerminator()->getNumSuccessors() == 0) {
-        addPredecessor(&b, nullptr);
+        Node* n = createFunctionExitNode(&b, this);
+        addPredecessor(n);
       }
     }
+  }
+
+  void createNodesForFunctionCall(Node* callSite, Node* returnToPoint, Function* f) {
+    createFunctionExitNodes(returnToPoint, f);
+    createFunctionEntryNode(f, callSite);
+  }
+
+  void createFunctionExitNodes(Node* returnToPoint, Function* f) {
+    for(BasicBlock& b : *f) {
+      if (b.getTerminator()->getNumSuccessors() == 0) {
+        createFunctionExitNode(&b, returnToPoint);
+      }
+    }
+  }
+
+  Node* createFunctionExitNode(BasicBlock* bb, Node* returnToPoint) {
+    Node* node;
+    if (allNodes->count(std::make_pair(bb, nullptr)) > 0) {
+      node = (*allNodes)[std::make_pair(bb, nullptr)];
+      node->addSuccessor(returnToPoint);
+    }
+    else {
+      node = new Node(bb, allNodes, returnToPoint);
+      (*allNodes)[std::make_pair(bb, nullptr)] = node;
+    }
+    return node;
+  }
+
+  Node* createFunctionEntryNode(Function* f, Node* callSite) {
+    Node* node;
+    BasicBlock* bb = &(f->getEntryBlock());
+    Instruction* i = findFunctionCallTopDown(bb);
+    if (allNodes->count(std::make_pair(bb, i)) > 0) {
+      node = (*allNodes)[std::make_pair(bb, i)];
+      node->addPredecessor(callSite);
+    }
+    else {
+      node = new Node(bb, i, allNodes, callSite);
+      (*allNodes)[std::make_pair(bb, nullptr)] = node;
+    }
+    return node;
+  }
+
+  Instruction* findNextFunctionCallAfter(BasicBlock* bb, Instruction* toFind) {
+    bool programPointFound = toFind == nullptr;
+    for(Instruction& i : *bb) {
+      if (!programPointFound) {
+        if (&i == toFind) {
+          programPointFound = true;
+        }
+        continue;
+      }
+
+      if (i.getOpcode() == Instruction::Call) {
+        CallInst* callInst = dyn_cast<CallInst>(&i);
+        Function* f = callInst->getCalledFunction();
+        if (f != nullptr) {
+          return &i;
+        }
+      }
+    }
+    return nullptr;
   }
 
 };
