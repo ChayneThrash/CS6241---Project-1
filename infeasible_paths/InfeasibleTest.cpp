@@ -27,12 +27,12 @@ namespace {
 
         errs()<< "BasicBlock: " << b.getName();
         errs()<< " Start set: ";
-        for(std::pair< std::pair<Node*, Node*>, std::set<std::pair<Query, QueryResolution>>> startingPoints : result.startSet) {
+        for(std::pair< std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> startingPoints : result.startSet) {
           for (std::pair<Query, QueryResolution> startValue : startingPoints.second) {
             if (startValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << startingPoints.first.first->basicBlock->getName() << "," << startingPoints.first.second->basicBlock->getName() << " R: ";
+            errs()<<"{e: " << std::get<0>(startingPoints.first)->basicBlock->getName() << "," << std::get<1>(startingPoints.first)->basicBlock->getName() << " R: ";
             if (startValue.second == QueryTrue) {
               errs() << "T}";
             }
@@ -45,12 +45,12 @@ namespace {
         errs()<< "\n";
 
         errs()<< "Present set: ";
-        for(std::pair< std::pair<Node*, Node*>, std::set<std::pair<Query, QueryResolution>>> presentPoints : result.presentSet) {
+        for(std::pair< std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> presentPoints : result.presentSet) {
           for (std::pair<Query, QueryResolution> presentValue : presentPoints.second) {
             if (presentValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << presentPoints.first.first->basicBlock->getName() << "," << presentPoints.first.second->basicBlock->getName() << " R: ";
+            errs()<<"{e: " << std::get<0>(presentPoints.first)->basicBlock->getName() << "," << std::get<1>(presentPoints.first)->basicBlock->getName() << " R: ";
             if (presentValue.second == QueryTrue) {
               errs() << "T}";
             }
@@ -62,12 +62,12 @@ namespace {
         errs()<< "\n";
 
         errs()<< "End set: ";
-        for(std::pair< std::pair<Node*, Node*>, std::set<std::pair<Query, QueryResolution>>> endPoints : result.endSet) {
+        for(std::pair< std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> endPoints : result.endSet) {
           for (std::pair<Query, QueryResolution> endValue : endPoints.second) {
             if (endValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << endPoints.first.first->basicBlock->getName() << "," << endPoints.first.second->basicBlock->getName() << " R: ";
+            errs()<<"{e: " << std::get<0>(endPoints.first)->basicBlock->getName() << "," << std::get<1>(endPoints.first)->basicBlock->getName() << " R: ";
             if (endValue.second == QueryTrue) {
               errs() << "T}";
             }

@@ -17,9 +17,6 @@
 using namespace llvm;
 
 
-/// Conclusions: function exit nodes need to know where all of the caller locations are that were originally called from. Basically, some exit node manager that can keep track of all of the predecessors of 
-/// the exit nodes. Nodes inside of the original calling context will not propogate their results into the function (maybe? need to think on this some more...) 
-
 
 Instruction* findFunctionCallTopDown(BasicBlock* b) {
   for(Instruction& i : *b) {
@@ -37,21 +34,21 @@ Instruction* findFunctionCallTopDown(BasicBlock* b) {
 struct Node {
 
   Node(BasicBlock* bb, Instruction* programPoint, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes, Node* callSite) : Node(bb, programPoint, false, allNodes) {
-    predecessors.push_back(callSite);
+    predecessors.insert(callSite);
     predecessorsInitialized = true;
     isEntryOfFunction = true;
   }
 
   Node(BasicBlock* bb, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes, Node* returnPoint) : Node(bb, nullptr, false, allNodes) {
-    successors.push_back(returnPoint);
+    successors.insert(returnPoint);
     successorsInitialized = true;
     isExitOfFunction = true;
   }
 
   Node(BasicBlock* bb, Instruction* programPoint, bool isStartingNode, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes) : 
-        basicBlock(bb), programPointInBlock(programPoint), successors(), predecessors(),
-        instructionsReversed(), successorsInitialized(false), predecessorsInitialized(false),
-        isExitOfFunction(false), isEntryOfFunction(true) {
+        basicBlock(bb), programPointInBlock(programPoint), isExitOfFunction(false), isEntryOfFunction(false), successors(), predecessors(),
+        instructionsReversed(), successorsInitialized(false), predecessorsInitialized(false)
+         {
     populateInstructionList();
     this->isStartingNode = isStartingNode;
     if (isStartingNode) {
@@ -78,13 +75,15 @@ struct Node {
 
   BasicBlock* basicBlock;
   Instruction* programPointInBlock;
+  bool isExitOfFunction;
+  bool isEntryOfFunction;
 
   Node* getFunctionEntryNode() {
     BasicBlock* entryBlock = &(basicBlock->getParent()->getEntryBlock());
     return getOrCreateNode(entryBlock, findFunctionCallTopDown(entryBlock));
   }
 
-  const std::vector<Node*>& getSuccessors() {
+  const std::set<Node*>& getSuccessors() {
     if (!successorsInitialized) {
       populateSuccessors();
       successorsInitialized = true;
@@ -92,7 +91,7 @@ struct Node {
     return successors;
   }
 
-  const std::vector<Node*>& getPredecessors() {
+  const std::set<Node*>& getPredecessors() {
     if (!predecessorsInitialized) {
       populatePredecessors();
       predecessorsInitialized = true;
@@ -144,23 +143,26 @@ struct Node {
   }
 
   void addPredecessor(Node* node) {
-    predecessors.push_back(node);
+    predecessors.insert(node);
   }
 
   void addSuccessor(Node* node) {
-    successors.push_back(node);
+    successors.insert(node);
+  }
+
+  Node* getPredecessorBypassingFunctionCall() {
+    Instruction* callSite = instructionsReversed.back();
+    return (*allNodes)[std::make_pair(basicBlock, callSite)];
   }
 
 private:
-  std::vector<Node*> successors;
-  std::vector<Node*> predecessors;
+  std::set<Node*> successors;
+  std::set<Node*> predecessors;
   std::vector<Instruction*> instructionsReversed;
   bool successorsInitialized;
   bool predecessorsInitialized;
   bool isStartingNode;
   std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes;
-  bool isExitOfFunction;
-  bool isEntryOfFunction;
 
 
   void populatePredecessors() {
@@ -259,7 +261,7 @@ private:
         if (!programPointReached) {
           if (&i == programPointInBlock) {
             programPointReached = true;  
-            instructionsReversed.push_back(&i);
+            //instructionsReversed.push_back(&i);
           }
           continue;
         }
@@ -277,11 +279,11 @@ private:
   }
 
   void addPredecessor(BasicBlock* bb, Instruction* i) {
-    predecessors.push_back(getOrCreateNode(bb, i));
+    predecessors.insert(getOrCreateNode(bb, i));
   }
 
   void addSuccessor(BasicBlock* bb, Instruction* i) {
-    successors.push_back(getOrCreateNode(bb, i));
+    successors.insert(getOrCreateNode(bb, i));
   }
 
   Node* getOrCreateNode(BasicBlock* bb, Instruction* i) {
