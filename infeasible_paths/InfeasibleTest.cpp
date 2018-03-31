@@ -4,6 +4,23 @@ using namespace llvm;
 
 namespace {
 
+  void printCallStack(std::stack<Node*> callStack) {
+    errs() << "(";
+    while(callStack.size() > 0) {
+      Node* n = callStack.top();
+      callStack.pop();
+
+      if (n == nullptr) {
+        errs() << "null";
+      }
+      else {
+        errs()<< n->basicBlock->getName() << ", ";
+      }
+    }
+
+    errs() << ")";
+  }
+
   class InfeasibleTest : public FunctionPass {
   private:
 
@@ -14,6 +31,9 @@ namespace {
 
     bool runOnFunction(Function &F) override {
 
+      if (F.getName() != "main") {
+        return false;
+      }
       for(BasicBlock& b : F) {
         const TerminatorInst* terminator = b.getTerminator();
         if (terminator->getNumSuccessors() == 1 || terminator->getOpcode() != Instruction::Br) {
@@ -32,7 +52,11 @@ namespace {
             if (startValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << std::get<0>(startingPoints.first)->basicBlock->getName() << "," << std::get<1>(startingPoints.first)->basicBlock->getName() << " R: ";
+            BasicBlock* bb1 = std::get<0>(startingPoints.first)->basicBlock;
+            BasicBlock* bb2 = std::get<1>(startingPoints.first)->basicBlock;
+            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << "CS: ";
+            printCallStack(std::get<2>(startingPoints.first));
+            errs() << " R: ";
             if (startValue.second == QueryTrue) {
               errs() << "T}";
             }
@@ -50,7 +74,11 @@ namespace {
             if (presentValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << std::get<0>(presentPoints.first)->basicBlock->getName() << "," << std::get<1>(presentPoints.first)->basicBlock->getName() << " R: ";
+            BasicBlock* bb1 = std::get<0>(presentPoints.first)->basicBlock;
+            BasicBlock* bb2 = std::get<1>(presentPoints.first)->basicBlock;
+            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << "CS: ";
+            printCallStack(std::get<2>(presentPoints.first));
+            errs() << " R: ";
             if (presentValue.second == QueryTrue) {
               errs() << "T}";
             }
@@ -67,7 +95,11 @@ namespace {
             if (endValue.second == QueryUndefined) {
               errs() << "wtf?";
             }
-            errs()<<"{e: " << std::get<0>(endPoints.first)->basicBlock->getName() << "," << std::get<1>(endPoints.first)->basicBlock->getName() << " R: ";
+            BasicBlock* bb1 = std::get<0>(endPoints.first)->basicBlock;
+            BasicBlock* bb2 = std::get<1>(endPoints.first)->basicBlock;
+            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << "CS: ";
+            printCallStack(std::get<2>(endPoints.first));
+            errs() << " R: ";
             if (endValue.second == QueryTrue) {
               errs() << "T}";
             }

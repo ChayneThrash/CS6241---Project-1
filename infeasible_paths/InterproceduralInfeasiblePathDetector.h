@@ -170,7 +170,9 @@ namespace {
                 if (qr.second.top() != nullptr && qr.second.top() != callSiteOfExitedFunction) {
                   continue;
                 }
-                stackCopy.pop();
+                if (qr.second.top() == callSiteOfExitedFunction) {
+                  stackCopy.pop();
+                }
               }
 
               // Make sure queries propagated to function calls are associated with the proper calling context.
@@ -226,19 +228,45 @@ namespace {
             }
 
             for (std::stack<Node*> callStack : uniqueCallStacks) {
-              if (
-                  queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, callStack)) > 0 
-                  && queryResolutions[std::make_pair(substitutedQuery, pred)].size() == 1
-                  && queryResolutions[std::make_pair(query, n)].size() > 1
-                ) {
-                result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryTrue));
-              }
-              else if (
-                    queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, callStack)) > 0 
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].size() == 1
+              if (callStack == emptyCallStack) {
+                auto countNotTruePredicate = [](std::pair<QueryResolution, std::stack<Node*>> p) { return p.first != QueryTrue; };
+                auto countNotFalsePredicate = [](std::pair<QueryResolution, std::stack<Node*>> p) { return p.first != QueryFalse; };
+                if (
+                    queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, callStack)) > 0 
+                    && std::count_if(queryResolutions[std::make_pair(substitutedQuery, pred)].begin(), queryResolutions[std::make_pair(substitutedQuery, pred)].end(), countNotTruePredicate) == 0
                     && queryResolutions[std::make_pair(query, n)].size() > 1
-                ) {
-                result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryFalse));
+                  ) {
+                  result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryTrue));
+                }
+                else if (
+                    queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, callStack)) > 0 
+                    && std::count_if(queryResolutions[std::make_pair(substitutedQuery, pred)].begin(), queryResolutions[std::make_pair(substitutedQuery, pred)].end(), countNotFalsePredicate) == 0
+                    && queryResolutions[std::make_pair(query, n)].size() > 1
+                  ) {
+                  result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryFalse));
+                }
+              }
+              else {
+                if (
+                    queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, callStack)) > 0 
+                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, callStack)) == 0
+                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryUndefined, callStack)) ==  0
+                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, emptyCallStack)) == 0
+                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryUndefined, emptyCallStack)) ==  0
+                    && queryResolutions[std::make_pair(query, n)].size() > 1
+                  ) {
+                  result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryTrue));
+                }
+                else if (
+                    queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, callStack)) > 0 
+                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, callStack)) == 0
+                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryUndefined, callStack)) ==  0
+                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, emptyCallStack)) == 0
+                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryUndefined, emptyCallStack)) ==  0
+                    && queryResolutions[std::make_pair(query, n)].size() > 1
+                  ) {
+                  result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryFalse));
+                }
               }
             }
           }
@@ -410,6 +438,16 @@ namespace {
           }
           else {
             q.lhs = i.getOperand(0);
+          }
+        }
+        else if (i.getOpcode() == Instruction::Call) {
+          continue;
+        }
+        else if (i.getOpcode() == Instruction::Ret) {
+          ReturnInst* returnInst = dyn_cast<ReturnInst>(&i);
+          if (q.lhs == returnInst->getReturnValue() && isa<ConstantInt>(q.lhs)) {
+            resolution = resolveConstantAssignment(dyn_cast<ConstantInt>(q.lhs), q);
+            return true;
           }
         }
         else if (q.lhs == &i) {
