@@ -1,14 +1,3 @@
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/Pass.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Analysis/CFG.h"
-#include "llvm/IR/Dominators.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Analysis/LoopInfo.h"
 
 #include "DemandDrivenDefUse.h"
 
@@ -25,12 +14,26 @@ namespace {
     DemandDrivenDefUseRun() : FunctionPass(ID) {}
 
     bool runOnFunction(Function &F) override {
-			errs() << "Performing def-use analysis on " << F.getName() << "\n";
+			errs() << "[*] Performing def-use analysis on " << F.getName() << "\n";
 
-			for(BasicBlock& B : F){
-				DemandDrivenDefUse defUseAnalysis; 
-				defUseAnalysis.startBlockAnalysis(B);
+			map<string, set<pair<BasicBlock*, BasicBlock*>>>  def_use;
+			DemandDrivenDefUse defUseAnalysis; 
+
+			for(BasicBlock& B : F)
+				defUseAnalysis.startBlockAnalysis(B, def_use);
+
+			map<string, set<pair<BasicBlock*, BasicBlock*>>>::iterator it;
+			for (it = def_use.begin(); it != def_use.end(); ++it){
+					errs() << "\t[$] Def-Use(" << it->first << "): ";
+
+					for(pair<BasicBlock*, BasicBlock*> p : it->second)
+						errs() << "(" << p.first->getName() << ", " << p.second->getName() << ") ";
+
+					errs() << "\n"; 
 			}
+
+			errs() << "\n";
+
       return false;
     }
 
