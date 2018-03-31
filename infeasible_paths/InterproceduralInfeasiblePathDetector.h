@@ -86,9 +86,9 @@ namespace {
   };
 
   struct  InfeasiblePathResult {
-    std::map<std::pair<Node, Node>, std::set<std::pair<Query, QueryResolution>>> startSet;
-    std::map<std::pair<Node, Node>, std::set<std::pair<Query, QueryResolution>>> presentSet;
-    std::map<std::pair<Node, Node>, std::set<std::pair<Query, QueryResolution>>> endSet;
+    std::map<std::pair<Node*, Node*>, std::set<std::pair<Query, QueryResolution>>> startSet;
+    std::map<std::pair<Node*, Node*>, std::set<std::pair<Query, QueryResolution>>> presentSet;
+    std::map<std::pair<Node*, Node*>, std::set<std::pair<Query, QueryResolution>>> endSet;
   };
 
   class InfeasiblePathDetector {
@@ -97,55 +97,49 @@ namespace {
   public:
     InfeasiblePathDetector() {}
 
-    void detectPaths(BasicBlock& basicBlock, InfeasiblePathResult& result) {
-      const TerminatorInst* terminator = basicBlock.getTerminator();
-      if (terminator->getNumSuccessors() == 1 || terminator->getOpcode() != Instruction::Br) {
+    void detectPaths(Node& initialNode, InfeasiblePathResult& result) {
+      errs()<< "here\n";
+      if (initialNode.endsWithConditionalBranch()) {
         return;
       }
-
-      std::queue<std::pair<Node, Query>> worklist;
-      std::map<Node, std::vector<Query>> visited;
+      std::queue<std::pair<Node*, Query>> worklist;
+      std::map<Node*, std::vector<Query>> visited;
 
       Query initialQuery;
-      initialQuery.lhs = terminator->getOperand(0);
+      initialQuery.lhs = initialNode.getBranchCondition();
       initialQuery.rhs = nullptr;
       initialQuery.isSummaryNodeQuery = false;
       initialQuery.queryOperator = IsTrue;
 
-      Node initialNode(&basicBlock, findFunctionCallTopDown(&basicBlock));
 
-      worklist.push(std::make_pair(initialNode, initialQuery));
-      visited[initialNode].push_back(initialQuery);
-      
-      BasicBlock* trueDestination = dyn_cast<BasicBlock>(terminator->getOperand(2));
-      BasicBlock* falseDestination = dyn_cast<BasicBlock>(terminator->getOperand(1));
+      worklist.push(std::make_pair(&initialNode, initialQuery));
+      visited[&initialNode].push_back(initialQuery);
 
-      Node trueDestinationNode(trueDestination, findFunctionCallTopDown(trueDestination));
-      Node falseDestinationNode(falseDestination, findFunctionCallTopDown(falseDestination));
+      Node* trueDestinationNode = initialNode.getTrueEdge();
+      Node* falseDestinationNode = initialNode.getFalseEdge();
 
-      std::map<std::pair<Query, Node>, std::set<QueryResolution>> queryResolutions;
-      std::set<std::pair<Query, Node>> queriesResolvedInNode;
+      std::map<std::pair<Query, Node*>, std::set<QueryResolution>> queryResolutions;
+      std::set<std::pair<Query, Node*>> queriesResolvedInNode;
 
       QueryResolution resolution;
 
       // Step 1
       while(worklist.size() != 0) {
-        std::pair<Node, Query> workItem = worklist.front();
+        std::pair<Node*, Query> workItem = worklist.front();
         worklist.pop();
 
-        Node n = workItem.first;
-        BasicBlock* b = n.basicBlock;
+        Node* n = workItem.first;
         Query currentValue = workItem.second;
 
-        if(!resolve(n, currentValue, resolution)) {
-          if (b == &(b->getParent()->getEntryBlock())) {
+        if(!resolve(*n, currentValue, resolution)) {
+          if (n == initialNode.getFunctionEntryNode()) {
             queriesResolvedInNode.insert(std::make_pair(currentValue, n));
             queryResolutions[std::make_pair(currentValue, n)].insert(QueryUndefined);
           }
 
-          std::map<Node, Query> substituteMap;
-          substitute(n, currentValue, substituteMap);
-          for(Node pred : n.getPredecessors()) {
+          std::map<Node*, Query> substituteMap;
+          substitute(*n, currentValue, substituteMap);
+          for(Node* pred : n->getPredecessors()) {
             if (std::find(visited[pred].begin(), visited[pred].end(), substituteMap[pred]) == visited[pred].end()) {
               visited[pred].push_back(substituteMap[pred]);
               worklist.push(std::make_pair(pred, substituteMap[pred]));
@@ -157,7 +151,7 @@ namespace {
           queryResolutions[std::make_pair(currentValue, n)].insert(resolution);
 
           // There is an edge case where the query may becomes resolved instantly. If this is case, just add the branch exit edges to all of the output sets.
-          if (b == &basicBlock && currentValue == initialQuery) {
+          if (n == &initialNode && currentValue == initialQuery) {
             if (resolution == QueryTrue) {
               result.startSet[std::make_pair(n, trueDestinationNode)].insert( std::make_pair(initialQuery, QueryTrue));
               result.presentSet[std::make_pair(n, trueDestinationNode)].insert(std::make_pair(initialQuery, QueryTrue));
@@ -173,37 +167,37 @@ namespace {
         }
       }
 
-      std::set<Node> step2WorkList;
-      for (std::pair<const std::pair<Query, Node>, std::set<QueryResolution>> resolvedNode : queryResolutions) {
-        Node n = resolvedNode.first.second;
-        for (Node succ : n.getSuccessors()) {
+      std::set<Node*> step2WorkList;
+      for (std::pair<const std::pair<Query, Node*>, std::set<QueryResolution>> resolvedNode : queryResolutions) {
+        Node* n = resolvedNode.first.second;
+        for (Node* succ : n->getSuccessors()) {
           step2WorkList.insert(succ);
         }
       }
 
       // Step 2
       while (step2WorkList.size() != 0) {
-        std::set<Node>::iterator nIter = step2WorkList.begin();
-        Node n = *nIter;
+        std::set<Node*>::iterator nIter = step2WorkList.begin();
+        Node* n = *nIter;
         step2WorkList.erase(nIter);
 
         for(Query query : visited[n]) {
 
-          std::pair<Query, Node> currentBlockAndQuery = std::make_pair(query, n);
+          std::pair<Query, Node*> currentBlockAndQuery = std::make_pair(query, n);
           
           if (queriesResolvedInNode.count(currentBlockAndQuery) != 0) {
             continue;
           }
 
-          std::map<Node, Query> substituteMap;
-          substitute(n, query, substituteMap);
-          for (Node pred : n.getPredecessors()) {
+          std::map<Node*, Query> substituteMap;
+          substitute(*n, query, substituteMap);
+          for (Node* pred : n->getPredecessors()) {
             size_t currentNumberResultsForBlock = queryResolutions[currentBlockAndQuery].size();
             for(QueryResolution qr : queryResolutions[std::make_pair(substituteMap[pred], pred)]) {
               queryResolutions[currentBlockAndQuery].insert(qr);
             }
             if (queryResolutions[currentBlockAndQuery].size() > currentNumberResultsForBlock) {
-              for (Node succ : n.getSuccessors()) {
+              for (Node* succ : n->getSuccessors()) {
                 step2WorkList.insert(succ);
               }   
             }
@@ -212,21 +206,21 @@ namespace {
       }
 
       // Step 3
-      if (queryResolutions[std::make_pair(initialQuery, initialNode)].count(QueryTrue) > 0) {
-        result.endSet[std::make_pair(initialNode, trueDestinationNode)].insert(std::make_pair(initialQuery, QueryTrue));
+      if (queryResolutions[std::make_pair(initialQuery, &initialNode)].count(QueryTrue) > 0) {
+        result.endSet[std::make_pair(&initialNode, trueDestinationNode)].insert(std::make_pair(initialQuery, QueryTrue));
       }
 
-      if (queryResolutions[std::make_pair(initialQuery, initialNode)].count(QueryFalse) > 0) {
-        result.endSet[std::make_pair(initialNode, falseDestinationNode)].insert(std::make_pair(initialQuery, QueryFalse));
+      if (queryResolutions[std::make_pair(initialQuery, &initialNode)].count(QueryFalse) > 0) {
+        result.endSet[std::make_pair(&initialNode, falseDestinationNode)].insert(std::make_pair(initialQuery, QueryFalse));
       }
 
-      for (std::pair<Node, std::vector<Query>> visitedNode : visited) {
-        Node n = visitedNode.first;
+      for (std::pair<Node*, std::vector<Query>> visitedNode : visited) {
+        Node* n = visitedNode.first;
         for (Query query : visitedNode.second) {
 
-          std::map<Node, Query> substituteMap;
-          substitute(n, query, substituteMap);
-          for (Node pred : n.getPredecessors()) {
+          std::map<Node*, Query> substituteMap;
+          substitute(*n, query, substituteMap);
+          for (Node* pred : n->getPredecessors()) {
             Query substitutedQuery = substituteMap[pred];
             if (queryResolutions[std::make_pair(substitutedQuery, pred)].count(QueryTrue) > 0) {
               result.presentSet[std::make_pair(pred, n)].insert(std::make_pair(substitutedQuery, QueryTrue));
@@ -256,7 +250,7 @@ namespace {
 
     }
 
-    void substitute(Node& basicBlock, Query q, std::map<Node, Query>& querySubstitutedToPreds) {
+    void substitute(Node& basicBlock, Query q, std::map<Node*, Query>& querySubstitutedToPreds) {
       for (Instruction* iIter : basicBlock.getReversedInstructions()) {
         Instruction& i = *iIter;
         if (i.getOpcode() == Instruction::Store && i.getOperand(1) == q.lhs) {
@@ -268,11 +262,11 @@ namespace {
           CallInst* callInst = dyn_cast<CallInst>(&i);
           Function* f = callInst->getCalledFunction();
           if (f != nullptr) {
-            for(Node n : basicBlock.getPredecessors()) {
+            for(Node* n : basicBlock.getPredecessors()) {
               Query summaryQuery = q;
               q.isSummaryNodeQuery = true;
               if (&i == q.lhs) {
-                ReturnInst* returnInst = dyn_cast<ReturnInst>(n.getReversedInstructions().front());
+                ReturnInst* returnInst = dyn_cast<ReturnInst>(n->getReversedInstructions().front());
                 q.lhs = returnInst->getReturnValue();
               }
               querySubstitutedToPreds[n] = summaryQuery;
@@ -315,7 +309,7 @@ namespace {
           }
         }
       }
-      for (Node n : basicBlock.getPredecessors()) {
+      for (Node* n : basicBlock.getPredecessors()) {
         querySubstitutedToPreds[n] = q;
       }
     }
@@ -456,13 +450,6 @@ namespace {
         case IsSignedLessThanOrEqual: return IsSignedGreaterThan;
         case IsUnsignedLessThanOrEqual: return IsUnsignedGreaterThan;
         default: return IsTrue;
-      }
-    }
-
-    void getPredecessorsSkippingFunction(Node& n, std::vector<Node> predecessors) {
-      const std::vector<Node>& nodePredecessors = n.getPredecessors();
-      if (nodePredecessors.size() > 0) {
-        predecessors.push_back(*(nodePredecessors.front().parentNode));
       }
     }
 
