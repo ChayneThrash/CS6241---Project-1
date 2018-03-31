@@ -47,17 +47,17 @@ namespace {
 
         errs()<< "BasicBlock: " << b.getName();
         errs()<< " Start set: ";
-        for(std::pair< std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> startingPoints : result.startSet) {
-          for (std::pair<Query, QueryResolution> startValue : startingPoints.second) {
-            if (startValue.second == QueryUndefined) {
+        for(std::pair< std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>> startingPoints : result.startSet) {
+          for (std::tuple<Query, QueryResolution, std::stack<Node*>> startValue : startingPoints.second) {
+            if (std::get<1>(startValue) == QueryUndefined) {
               errs() << "wtf?";
             }
-            BasicBlock* bb1 = std::get<0>(startingPoints.first)->basicBlock;
-            BasicBlock* bb2 = std::get<1>(startingPoints.first)->basicBlock;
-            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << "CS: ";
-            printCallStack(std::get<2>(startingPoints.first));
+            BasicBlock* bb1 = startingPoints.first.first->basicBlock;
+            BasicBlock* bb2 = startingPoints.first.second->basicBlock;
+            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << " CS: ";
+            printCallStack(std::get<2>(startValue));
             errs() << " R: ";
-            if (startValue.second == QueryTrue) {
+            if (std::get<1>(startValue) == QueryTrue) {
               errs() << "T}";
             }
             else {
@@ -69,44 +69,46 @@ namespace {
         errs()<< "\n";
 
         errs()<< "Present set: ";
-        for(std::pair< std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> presentPoints : result.presentSet) {
-          for (std::pair<Query, QueryResolution> presentValue : presentPoints.second) {
-            if (presentValue.second == QueryUndefined) {
+        for(std::pair< std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>> startingPoints : result.presentSet) {
+          for (std::tuple<Query, QueryResolution, std::stack<Node*>> startValue : startingPoints.second) {
+            if (std::get<1>(startValue) == QueryUndefined) {
               errs() << "wtf?";
             }
-            BasicBlock* bb1 = std::get<0>(presentPoints.first)->basicBlock;
-            BasicBlock* bb2 = std::get<1>(presentPoints.first)->basicBlock;
-            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << "CS: ";
-            printCallStack(std::get<2>(presentPoints.first));
+            BasicBlock* bb1 = startingPoints.first.first->basicBlock;
+            BasicBlock* bb2 = startingPoints.first.second->basicBlock;
+            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << " CS: ";
+            printCallStack(std::get<2>(startValue));
             errs() << " R: ";
-            if (presentValue.second == QueryTrue) {
+            if (std::get<1>(startValue) == QueryTrue) {
               errs() << "T}";
             }
             else {
               errs() << "F}";
             }
           }
+          
         }
         errs()<< "\n";
 
         errs()<< "End set: ";
-        for(std::pair< std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> endPoints : result.endSet) {
-          for (std::pair<Query, QueryResolution> endValue : endPoints.second) {
-            if (endValue.second == QueryUndefined) {
+        for(std::pair< std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>> startingPoints : result.endSet) {
+          for (std::tuple<Query, QueryResolution, std::stack<Node*>> startValue : startingPoints.second) {
+            if (std::get<1>(startValue) == QueryUndefined) {
               errs() << "wtf?";
             }
-            BasicBlock* bb1 = std::get<0>(endPoints.first)->basicBlock;
-            BasicBlock* bb2 = std::get<1>(endPoints.first)->basicBlock;
-            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << "CS: ";
-            printCallStack(std::get<2>(endPoints.first));
+            BasicBlock* bb1 = startingPoints.first.first->basicBlock;
+            BasicBlock* bb2 = startingPoints.first.second->basicBlock;
+            errs()<<"{e: " << bb1->getParent()->getName() << "." << bb1->getName() << ", " << bb2->getParent()->getName() << "." << bb2->getName() << " CS: ";
+            printCallStack(std::get<2>(startValue));
             errs() << " R: ";
-            if (endValue.second == QueryTrue) {
+            if (std::get<1>(startValue) == QueryTrue) {
               errs() << "T}";
             }
             else {
               errs() << "F}";
             }
           }
+          
         }
         errs()<< "\n";
 

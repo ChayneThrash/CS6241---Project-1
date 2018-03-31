@@ -26,6 +26,20 @@ using namespace llvm;
 
 namespace {
 
+  bool checkIfStackIsSubset(std::stack<Node*> potentialSuper, std::stack<Node*> potentialSub) {
+    if (potentialSub.size() > potentialSuper.size()) {
+      return false;
+    }
+
+    for(int i = 0; i < potentialSub.size(); ++i) {
+      if (potentialSuper.top() != potentialSub.top()) {
+        return false;
+      }
+      potentialSuper.pop();
+      potentialSub.pop();
+    }
+    return true;
+  }
 
   enum QueryOperator { 
     IsTrue, 
@@ -88,9 +102,39 @@ namespace {
   };
 
   struct  InfeasiblePathResult {
-    std::map<std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> startSet;
-    std::map<std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> presentSet;
-    std::map<std::tuple<Node*, Node*, std::stack<Node*>>, std::set<std::pair<Query, QueryResolution>>> endSet;
+    std::map<std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>> startSet;
+    std::map<std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>> presentSet;
+    std::map<std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>> endSet;
+
+    std::set<std::pair<Query, QueryResolution>> getStartSetFor(std::tuple<Node*, Node*, std::stack<Node*>> key) {
+      return querySet(key, startSet);
+    }
+
+    std::set<std::pair<Query, QueryResolution>> getPresentSetFor(std::tuple<Node*, Node*, std::stack<Node*>> key) {
+      return querySet(key, presentSet);
+    }
+
+    std::set<std::pair<Query, QueryResolution>> getEndSetFor(std::tuple<Node*, Node*, std::stack<Node*>> key) {
+      return querySet(key, endSet);
+    }
+
+  private:
+    std::set<std::pair<Query, QueryResolution>> querySet(std::tuple<Node*, Node*, std::stack<Node*>>& key, std::map<std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>>& s) {
+      auto matchesKey = [&key](std::tuple<Query, QueryResolution, std::stack<Node*>> t) { return checkIfStackIsSubset(std::get<2>(key), std::get<2>(t)); };
+
+      const auto& resultsToCheck = s[std::make_pair(std::get<0>(key), std::get<1>(key))];
+
+      std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>::iterator result = std::find_if(resultsToCheck.begin(), resultsToCheck.end(), matchesKey);
+
+      std::set<std::pair<Query, QueryResolution>> resultSet;
+      while(result != resultsToCheck.end()) {
+        auto r = *result;
+        resultSet.insert(std::make_pair(std::get<0>(r), std::get<1>(r)));
+        result = std::find_if(++result, resultsToCheck.end(), matchesKey);
+      }
+      return resultSet;
+    }
+
   };
 
   class InfeasiblePathDetector {
@@ -167,12 +211,14 @@ namespace {
               // prevent propagated queries from other call sites to this return point.
               if (pred->isExitOfFunction) {
                 Node* callSiteOfExitedFunction = n->getPredecessorBypassingFunctionCall();
-                if (qr.second.top() != nullptr && qr.second.top() != callSiteOfExitedFunction) {
+                if (qr.second.size() != 0 && qr.second.top() != callSiteOfExitedFunction) {
                   continue;
                 }
-                if (qr.second.top() == callSiteOfExitedFunction) {
+                errs()<< "here";
+                if (qr.second.size() != 0 && qr.second.top() == callSiteOfExitedFunction) {
                   stackCopy.pop();
                 }
+                errs() << "again\n";
               }
 
               // Make sure queries propagated to function calls are associated with the proper calling context.
@@ -184,7 +230,6 @@ namespace {
               // make sure we don't have the same resolution twice in the same block. It's OK if the same resolution is there for different calling points
               // but the nullptr ensures that the results looked at are only those shared between all call sites.
               std::stack<Node*> emptyCallStack;
-              emptyCallStack.push(nullptr);
               if (queryResolutions[currentBlockAndQuery].count(std::make_pair(qr.first, emptyCallStack)) == 0) {
                 queryResolutions[currentBlockAndQuery].insert(std::make_pair(qr.first, stackCopy));
               }
@@ -200,13 +245,12 @@ namespace {
 
       // Step 3
       std::stack<Node*> emptyCallStack;
-      emptyCallStack.push(nullptr);
       if (queryResolutions[std::make_pair(initialQuery, &initialNode)].count(std::make_pair(QueryTrue, emptyCallStack)) > 0) {
-        result.endSet[std::make_tuple(&initialNode, trueDestinationNode, emptyCallStack)].insert(std::make_pair(initialQuery, QueryTrue));
+        result.endSet[std::make_pair(&initialNode, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, emptyCallStack));
       }
 
       if (queryResolutions[std::make_pair(initialQuery, &initialNode)].count(std::make_pair(QueryFalse, emptyCallStack)) > 0) {
-        result.endSet[std::make_tuple(&initialNode, falseDestinationNode, emptyCallStack)].insert(std::make_pair(initialQuery, QueryFalse));
+        result.endSet[std::make_pair(&initialNode, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, emptyCallStack));
       }
 
       for (std::pair<Node*, std::vector<Query>> visitedNode : visited) {
@@ -223,7 +267,7 @@ namespace {
               if (qr.first != QueryTrue && qr.first != QueryFalse) {
                 continue;
               }
-              result.presentSet[std::make_tuple(pred, n, qr.second)].insert(std::make_pair(substitutedQuery, qr.first));
+              result.presentSet[std::make_pair(pred, n)].insert(std::make_tuple(substitutedQuery, qr.first, qr.second));
               uniqueCallStacks.insert(qr.second);
             }
 
@@ -236,36 +280,32 @@ namespace {
                     && std::count_if(queryResolutions[std::make_pair(substitutedQuery, pred)].begin(), queryResolutions[std::make_pair(substitutedQuery, pred)].end(), countNotTruePredicate) == 0
                     && queryResolutions[std::make_pair(query, n)].size() > 1
                   ) {
-                  result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryTrue));
+                  result.startSet[std::make_pair(pred, n)].insert(std::make_tuple(substitutedQuery, QueryTrue, callStack));
                 }
                 else if (
                     queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, callStack)) > 0 
                     && std::count_if(queryResolutions[std::make_pair(substitutedQuery, pred)].begin(), queryResolutions[std::make_pair(substitutedQuery, pred)].end(), countNotFalsePredicate) == 0
                     && queryResolutions[std::make_pair(query, n)].size() > 1
                   ) {
-                  result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryFalse));
+                  result.startSet[std::make_pair(pred, n)].insert(std::make_tuple(substitutedQuery, QueryFalse, callStack));
                 }
               }
               else {
+                auto countNotTruePredicate = [&callStack](std::pair<QueryResolution, std::stack<Node*>> p) { return p.first != QueryTrue && checkIfStackIsSubset(callStack, p.second); };
+                auto countNotFalsePredicate = [&callStack](std::pair<QueryResolution, std::stack<Node*>> p) { return p.first != QueryFalse && checkIfStackIsSubset(callStack, p.second); };
                 if (
                     queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, callStack)) > 0 
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, callStack)) == 0
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryUndefined, callStack)) ==  0
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, emptyCallStack)) == 0
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryUndefined, emptyCallStack)) ==  0
+                    && std::count_if(queryResolutions[std::make_pair(substitutedQuery, pred)].begin(), queryResolutions[std::make_pair(substitutedQuery, pred)].end(), countNotTruePredicate) == 0
                     && queryResolutions[std::make_pair(query, n)].size() > 1
                   ) {
-                  result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryTrue));
+                  result.startSet[std::make_pair(pred, n)].insert(std::make_tuple(substitutedQuery, QueryTrue, callStack));
                 }
                 else if (
                     queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, callStack)) > 0 
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, callStack)) == 0
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryUndefined, callStack)) ==  0
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, emptyCallStack)) == 0
-                    && queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryUndefined, emptyCallStack)) ==  0
+                    && std::count_if(queryResolutions[std::make_pair(substitutedQuery, pred)].begin(), queryResolutions[std::make_pair(substitutedQuery, pred)].end(), countNotFalsePredicate) == 0
                     && queryResolutions[std::make_pair(query, n)].size() > 1
                   ) {
-                  result.startSet[std::make_tuple(pred, n, callStack)].insert(std::make_pair(substitutedQuery, QueryFalse));
+                  result.startSet[std::make_pair(pred, n)].insert(std::make_tuple(substitutedQuery, QueryFalse, callStack));
                 }
               }
             }
@@ -289,7 +329,6 @@ namespace {
           if (n == initialNode.getFunctionEntryNode()) {
             queriesResolvedInNode.insert(std::make_pair(currentValue, n));
             std::stack<Node*> callStack;
-            callStack.push(nullptr);
             queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(QueryUndefined, callStack));
           }
 
@@ -340,20 +379,19 @@ namespace {
         else {
           queriesResolvedInNode.insert(std::make_pair(currentValue, n));
           std::stack<Node*> callStack;
-          callStack.push(nullptr);
           queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(resolution, callStack));
 
           // There is an edge case where the query may becomes resolved instantly. If this is case, just add the branch exit edges to all of the output sets.
           if (n == &initialNode && currentValue == initialQuery) {
             if (resolution == QueryTrue) {
-              result.startSet[std::make_tuple(n, trueDestinationNode, callStack)].insert( std::make_pair(initialQuery, QueryTrue));
-              result.presentSet[std::make_tuple(n, trueDestinationNode, callStack)].insert(std::make_pair(initialQuery, QueryTrue));
-              result.endSet[std::make_tuple(n, trueDestinationNode, callStack)].insert(std::make_pair(initialQuery, QueryTrue));
+              result.startSet[std::make_pair(n, trueDestinationNode)].insert( std::make_tuple(initialQuery, QueryTrue, callStack));
+              result.presentSet[std::make_pair(n, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, callStack));
+              result.endSet[std::make_pair(n, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, callStack));
             }
             else if (resolution == QueryFalse) {
-              result.startSet[std::make_tuple(n, falseDestinationNode, callStack)].insert(std::make_pair(initialQuery, QueryFalse));
-              result.presentSet[std::make_tuple(n, falseDestinationNode, callStack)].insert(std::make_pair(initialQuery, QueryFalse));
-              result.endSet[std::make_tuple(n, falseDestinationNode, callStack)].insert(std::make_pair(initialQuery, QueryFalse));
+              result.startSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, callStack));
+              result.presentSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, callStack));
+              result.endSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, callStack));
             }
             break;
           }
