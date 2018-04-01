@@ -44,12 +44,16 @@ namespace {
           continue;
         }
 
+        // if (F.getName() != "main" || b.getName() != "if.end") {
+        //   continue;
+        // }
+
         InfeasiblePathResult result;
         InfeasiblePathDetector detector;
         Node initialNode(&b, nullptr);
         detector.detectPaths(initialNode, result, *m);
 
-        errs()<< "BasicBlock: " << b.getName();
+        errs()<< "BasicBlock: " << F.getName() << "." << b.getName();
         errs()<< " Start set: ";
         for(std::pair< std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>> startingPoints : result.startSet) {
           for (std::tuple<Query, QueryResolution, std::stack<Node*>> startValue : startingPoints.second) {

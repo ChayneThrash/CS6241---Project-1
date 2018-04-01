@@ -33,9 +33,7 @@ Instruction* findFunctionCallTopDown(BasicBlock* b) {
 
 struct Node {
 
-  Node(BasicBlock* bb, Instruction* programPoint, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes, Node* callSite) : Node(bb, programPoint, false, allNodes) {
-    predecessors.insert(callSite);
-    predecessorsInitialized = true;
+  Node(BasicBlock* bb, Instruction* programPoint, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes) : Node(bb, programPoint, false, allNodes) {
     isEntryOfFunction = true;
   }
 
@@ -50,6 +48,9 @@ struct Node {
         instructionsReversed(), successorsInitialized(false), predecessorsInitialized(false)
          {
     populateInstructionList();
+    isEntryOfFunction = checkIfEntryOfFunction();
+    isExitOfFunction = checkIfExitOfFunction();
+
     this->isStartingNode = isStartingNode;
     if (isStartingNode) {
       this->allNodes = new std::map<std::pair<BasicBlock*, Instruction*>, Node*>();
@@ -165,6 +166,7 @@ private:
   bool predecessorsInitialized;
   bool isStartingNode;
   std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes;
+  //std::set<Node*> callSites;
 
 
   void populatePredecessors() {
@@ -216,20 +218,15 @@ private:
       }
       // means this is the entry node of the function
       if (predecessors.size() == 0) {
-        if (isEntryOfFunction) {
-          errs() << "ERROR: Incorrectly initializing predecessors for function entry";
-        }
-        else {
-          Function* f = basicBlock->getParent();
-          // get call sites of function
-          for(User *u : f->users()) {
-            if (isa<CallInst>(u)) {
-              CallInst* callInst = dyn_cast<CallInst>(u);
-              BasicBlock* callSiteBlock = callInst->getParent();
-              addPredecessor(callSiteBlock, callInst);
-              Node* callSite = getOrCreateNode(callSiteBlock, callInst);
-              callSite->addSuccessor(this);
-            }
+        Function* f = basicBlock->getParent();
+        // get call sites of function
+        for(User *u : f->users()) {
+          if (isa<CallInst>(u)) {
+            CallInst* callInst = dyn_cast<CallInst>(u);
+            BasicBlock* callSiteBlock = callInst->getParent();
+            addPredecessor(callSiteBlock, callInst);
+            Node* callSite = getOrCreateNode(callSiteBlock, callInst);
+            callSite->addSuccessor(this);
           }
         }
       }
@@ -360,11 +357,10 @@ private:
     Instruction* i = findFunctionCallTopDown(bb);
     if (allNodes->count(std::make_pair(bb, i)) > 0) {
       node = (*allNodes)[std::make_pair(bb, i)];
-      node->addPredecessor(callSite);
     }
     else {
-      node = new Node(bb, i, allNodes, callSite);
-      (*allNodes)[std::make_pair(bb, nullptr)] = node;
+      node = new Node(bb, i, allNodes);
+      (*allNodes)[std::make_pair(bb, i)] = node;
     }
     return node;
   }
@@ -388,6 +384,16 @@ private:
       }
     }
     return nullptr;
+  }
+
+  bool checkIfEntryOfFunction() {
+    BasicBlock* entryBlock = &(basicBlock->getParent()->getEntryBlock());
+    Instruction* i = findFunctionCallTopDown(entryBlock);
+    return basicBlock == entryBlock && programPointInBlock == i;
+  }
+
+  bool checkIfExitOfFunction() {
+    return programPointInBlock == nullptr && basicBlock->getTerminator()->getNumSuccessors() == 0;
   }
 
 };

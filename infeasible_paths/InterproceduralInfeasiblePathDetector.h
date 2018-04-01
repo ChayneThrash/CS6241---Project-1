@@ -144,15 +144,17 @@ namespace {
     Node* trueDestinationNode;
     Node* falseDestinationNode;
     BasicBlock* topMostBasicBlock;
+    Node* initialNode;
+    std::set<Query> queriesPropagatedToCallers;
 
   public:
     InfeasiblePathDetector() {}
 
-    void detectPaths(Node& initialNode, InfeasiblePathResult& result, Module& m) {
-      if (initialNode.endsWithConditionalBranch()) {
+    void detectPaths(Node& incomingNode, InfeasiblePathResult& result, Module& m) {
+      initialNode = &incomingNode;
+      if (initialNode->endsWithConditionalBranch()) {
         return;
       }
-
       Function* main = m.getFunction("main");
       if (main == nullptr) {
         errs() << "ERROR: could not get main...\n";
@@ -161,30 +163,31 @@ namespace {
 
       queryResolutions.clear();
       queriesResolvedInNode.clear();
+      queriesPropagatedToCallers.clear();
 
       // Work list contains two nodes since whenever a query gets propagated up, it should continue to the proper call site so we save
       // the call site with it.
-      std::queue<std::pair<Node*, Query>> worklist;
+      std::queue<std::tuple<Node*, Query, std::stack<Node*>>> worklist;
       std::map<Node*, std::vector<Query>> visited;
 
       Query initialQuery;
-      initialQuery.lhs = initialNode.getBranchCondition();
+      initialQuery.lhs = initialNode->getBranchCondition();
       initialQuery.rhs = nullptr;
       initialQuery.isSummaryNodeQuery = false;
       initialQuery.queryOperator = IsTrue;
 
 
-      worklist.push(std::make_pair(&initialNode, initialQuery));
-      visited[&initialNode].push_back(initialQuery);
+      worklist.push(std::make_tuple(initialNode, initialQuery, std::stack<Node*>()));
+      visited[initialNode].push_back(initialQuery);
 
-      trueDestinationNode = initialNode.getTrueEdge();
-      falseDestinationNode = initialNode.getFalseEdge();
+      trueDestinationNode = initialNode->getTrueEdge();
+      falseDestinationNode = initialNode->getFalseEdge();
 
       
 
       std::map<std::pair<Function*, Query>, std::set<Query>> functionQueryCache;
 
-      executeStepOne(worklist, visited, initialNode, initialQuery, result, functionQueryCache);
+      executeStepOne(worklist, visited, initialQuery, result, functionQueryCache);
       
       // Step 2
       std::set<Node*> step2WorkList;
@@ -205,7 +208,6 @@ namespace {
           std::pair<Query, Node*> currentBlockAndQuery = std::make_pair(query, n);
           
           if (queriesResolvedInNode.count(currentBlockAndQuery) != 0) {
-            errs() << n->basicBlock->getName() << "\n";
             continue;
           }
 
@@ -230,8 +232,10 @@ namespace {
 
               // Make sure queries propagated to function calls are associated with the proper calling context.
               if (n->isEntryOfFunction) {
-                Node* callSite = pred;
-                stackCopy.push(callSite);
+                if (n->basicBlock->getParent() != initialNode->basicBlock->getParent() || queriesPropagatedToCallers.count(substituteMap[pred]) == 0) {
+                  Node* callSite = pred;
+                  stackCopy.push(callSite);
+                }
               }
 
               // make sure we don't have the same resolution twice in the same block. It's OK if the same resolution is there for different calling points
@@ -252,12 +256,12 @@ namespace {
 
       // Step 3
       std::stack<Node*> emptyCallStack;
-      if (queryResolutions[std::make_pair(initialQuery, &initialNode)].count(std::make_pair(QueryTrue, emptyCallStack)) > 0) {
-        result.endSet[std::make_pair(&initialNode, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, emptyCallStack));
+      if (queryResolutions[std::make_pair(initialQuery, initialNode)].count(std::make_pair(QueryTrue, emptyCallStack)) > 0) {
+        result.endSet[std::make_pair(initialNode, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, emptyCallStack));
       }
 
-      if (queryResolutions[std::make_pair(initialQuery, &initialNode)].count(std::make_pair(QueryFalse, emptyCallStack)) > 0) {
-        result.endSet[std::make_pair(&initialNode, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, emptyCallStack));
+      if (queryResolutions[std::make_pair(initialQuery, initialNode)].count(std::make_pair(QueryFalse, emptyCallStack)) > 0) {
+        result.endSet[std::make_pair(initialNode, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, emptyCallStack));
       }
 
       for (std::pair<Node*, std::vector<Query>> visitedNode : visited) {
@@ -322,21 +326,22 @@ namespace {
 
     }
 
-    void executeStepOne(std::queue<std::pair<Node*, Query>>& worklist, std::map<Node*, std::vector<Query>>& visited, Node& initialNode, 
+    void executeStepOne(std::queue<std::tuple<Node*, Query, std::stack<Node*>>>& worklist, std::map<Node*, std::vector<Query>>& visited, 
                         Query initialQuery, InfeasiblePathResult& result, std::map<std::pair<Function*, Query>, std::set<Query>>& functionQueryCache) {
       while(worklist.size() != 0) {
-        std::pair<Node*, Query> workItem = worklist.front();
+        std::tuple<Node*, Query, std::stack<Node*>> workItem = worklist.front();
         worklist.pop();
 
-        Node* n = workItem.first;
-        Query currentValue = workItem.second;
+        Node* n = std::get<0>(workItem);
+        Query currentValue = std::get<1>(workItem);
+        std::stack<Node*> callStack = std::get<2>(workItem);
 
         QueryResolution resolution;
         if(!resolve(*n, currentValue, resolution)) {
           if (n->basicBlock == topMostBasicBlock && n->programPointInBlock == findFunctionCallTopDown(topMostBasicBlock)) {
             queriesResolvedInNode.insert(std::make_pair(currentValue, n));
-            std::stack<Node*> callStack;
-            queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(QueryUndefined, callStack));
+            std::stack<Node*> emptyCallStack;
+            queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(QueryUndefined, emptyCallStack));
           }
 
           std::map<Node*, Query> substituteMap;
@@ -344,30 +349,44 @@ namespace {
           
 
           if (n->isEntryOfFunction) {
-            functionQueryCache[std::make_pair(n->basicBlock->getParent(), initialQuery)].insert(currentValue);
+            // Reached the starting point of the function under analysis.
+            if (callStack.size() == 0) {
+              for(Node* pred : n->getPredecessors()) {
+                queriesPropagatedToCallers.insert(substituteMap[pred]);
+                if (std::find(visited[pred].begin(), visited[pred].end(), substituteMap[pred]) == visited[pred].end()) {
+                  visited[pred].push_back(substituteMap[pred]);
+                  worklist.push(std::make_tuple(pred, substituteMap[pred], callStack));
+                }
+              }
+            }
+            else {
+              functionQueryCache[std::make_pair(n->basicBlock->getParent(), initialQuery)].insert(currentValue);
+            }
           }
           else {
             std::set<Node*> preds = n->getPredecessors();
             if (preds.size() > 0) {
               Node* p = *(preds.begin());
               if (p->isExitOfFunction) {
-                std::queue<std::pair<Node*, Query>> worklistForFunction;
+                std::queue<std::tuple<Node*, Query, std::stack<Node*>>> worklistForFunction;
+                callStack.push(n->getPredecessorBypassingFunctionCall());
                 for(Node* pred : preds) {
                   if (std::find(visited[pred].begin(), visited[pred].end(), substituteMap[pred]) == visited[pred].end()) {
                     visited[pred].push_back(substituteMap[pred]);
-                    worklistForFunction.push(std::make_pair(pred, substituteMap[pred]));
+                    worklistForFunction.push(std::make_tuple(pred, substituteMap[pred], callStack));
                   }
                 }
                 if (worklistForFunction.size() > 0) {
-                  executeStepOne(worklistForFunction, visited, initialNode, currentValue, result, functionQueryCache);
+                  executeStepOne(worklistForFunction, visited, currentValue, result, functionQueryCache);
                 }
 
                 Function* functionCalled = p->basicBlock->getParent();
                 Node* predecessor = n->getPredecessorBypassingFunctionCall();
+                callStack.pop();
                 for(Query q : functionQueryCache[std::make_pair(functionCalled, currentValue)]) {
                   if (std::find(visited[predecessor].begin(), visited[predecessor].end(), q) == visited[predecessor].end()) {
                     visited[predecessor].push_back(q);
-                    worklist.push(std::make_pair(predecessor, q));
+                    worklist.push(std::make_tuple(predecessor, q, callStack));
                   }
                 }
 
@@ -376,7 +395,7 @@ namespace {
                 for(Node* pred : n->getPredecessors()) {
                   if (std::find(visited[pred].begin(), visited[pred].end(), substituteMap[pred]) == visited[pred].end()) {
                     visited[pred].push_back(substituteMap[pred]);
-                    worklist.push(std::make_pair(pred, substituteMap[pred]));
+                    worklist.push(std::make_tuple(pred, substituteMap[pred], callStack));
                   }
                 }
               }
@@ -385,20 +404,20 @@ namespace {
         }
         else {
           queriesResolvedInNode.insert(std::make_pair(currentValue, n));
-          std::stack<Node*> callStack;
-          queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(resolution, callStack));
+          std::stack<Node*> emptyCallStack;
+          queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(resolution, emptyCallStack));
 
           // There is an edge case where the query may becomes resolved instantly. If this is case, just add the branch exit edges to all of the output sets.
-          if (n == &initialNode && currentValue == initialQuery) {
+          if (n == initialNode && currentValue == initialQuery) {
             if (resolution == QueryTrue) {
-              result.startSet[std::make_pair(n, trueDestinationNode)].insert( std::make_tuple(initialQuery, QueryTrue, callStack));
-              result.presentSet[std::make_pair(n, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, callStack));
-              result.endSet[std::make_pair(n, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, callStack));
+              result.startSet[std::make_pair(n, trueDestinationNode)].insert( std::make_tuple(initialQuery, QueryTrue, emptyCallStack));
+              result.presentSet[std::make_pair(n, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, emptyCallStack));
+              result.endSet[std::make_pair(n, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, emptyCallStack));
             }
             else if (resolution == QueryFalse) {
-              result.startSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, callStack));
-              result.presentSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, callStack));
-              result.endSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, callStack));
+              result.startSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, emptyCallStack));
+              result.presentSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, emptyCallStack));
+              result.endSet[std::make_pair(n, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, emptyCallStack));
             }
             break;
           }
@@ -465,9 +484,11 @@ namespace {
           }
         }
       }
-      for (Node* n : basicBlock.getPredecessors()) {
-        querySubstitutedToPreds[n] = q;
-      }
+      //if (!basicBlock.isEntryOfFunction || basicBlock.basicBlock->getParent() == initialNode->basicBlock->getParent()) {
+        for (Node* n : basicBlock.getPredecessors()) {
+          querySubstitutedToPreds[n] = q;
+        }
+      //}
       return q;
     }
 
