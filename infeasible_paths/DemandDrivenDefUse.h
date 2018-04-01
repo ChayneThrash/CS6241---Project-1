@@ -21,12 +21,24 @@ namespace{
 			
       detector.detectPaths(B, result);
 
+			set<Value*> local_def; 
+
 			// Iterate over used variables, call demand driven analysis on each 
 			for(BasicBlock::iterator ins = B.begin(); ins != B.end(); ++ins)
-					if ((*ins).getOpcode() == Instruction::Load){
-                Value* op = ins->getOperand(0);
+					if ((*ins).getOpcode() == Instruction::Store){
+                Value* op = ins->getOperand(1);
 								if(op->hasName())
-									demandDrivenDefUseAnalysis(def_use, *op, B);
+									local_def.insert(op);
+					}		
+					else if ((*ins).getOpcode() == Instruction::Load){
+                Value* op = ins->getOperand(0);	
+								if(op->hasName()){
+									// Is it locally defined?
+									if(local_def.find(op) != local_def.end())
+										def_use[op->getName()].insert(make_pair(&B, &B));
+									else
+										demandDrivenDefUseAnalysis(def_use, *op, B);
+								}
 					}								
 
 		}
