@@ -44,9 +44,9 @@ namespace {
           continue;
         }
 
-        // if (F.getName() != "main" || b.getName() != "if.end") {
-        //   continue;
-        // }
+        if (F.getName() != "foo" || b.getName() != "entry") {
+          continue;
+        }
 
         InfeasiblePathResult result;
         InfeasiblePathDetector detector;

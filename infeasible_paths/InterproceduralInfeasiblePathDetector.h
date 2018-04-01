@@ -183,7 +183,8 @@ namespace {
       trueDestinationNode = initialNode->getTrueEdge();
       falseDestinationNode = initialNode->getFalseEdge();
 
-      
+      visited[trueDestinationNode].push_back(initialQuery);
+      visited[falseDestinationNode].push_back(initialQuery);
 
       std::map<std::pair<Function*, Query>, std::set<Query>> functionQueryCache;
 
@@ -263,6 +264,9 @@ namespace {
       if (queryResolutions[std::make_pair(initialQuery, initialNode)].count(std::make_pair(QueryFalse, emptyCallStack)) > 0) {
         result.endSet[std::make_pair(initialNode, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, emptyCallStack));
       }
+
+      queryResolutions[std::make_pair(initialQuery, trueDestinationNode)].insert(std::make_pair(QueryTrue, emptyCallStack));
+      queryResolutions[std::make_pair(initialQuery, trueDestinationNode)].insert(std::make_pair(QueryFalse, emptyCallStack));
 
       for (std::pair<Node*, std::vector<Query>> visitedNode : visited) {
         Node* n = visitedNode.first;
