@@ -143,10 +143,12 @@ struct Node {
   }
 
   void addPredecessor(Node* node) {
+    predecessorsInitialized = true;
     predecessors.insert(node);
   }
 
   void addSuccessor(Node* node) {
+    successorsInitialized = true;
     successors.insert(node);
   }
 
@@ -211,6 +213,25 @@ private:
     if (!functionFound) {
       for(BasicBlock* pred : llvm::predecessors(basicBlock)) {
         addPredecessor(pred, nullptr);
+      }
+      // means this is the entry node of the function
+      if (predecessors.size() == 0) {
+        if (isEntryOfFunction) {
+          errs() << "ERROR: Incorrectly initializing predecessors for function entry";
+        }
+        else {
+          Function* f = basicBlock->getParent();
+          // get call sites of function
+          for(User *u : f->users()) {
+            if (isa<CallInst>(u)) {
+              CallInst* callInst = dyn_cast<CallInst>(u);
+              BasicBlock* callSiteBlock = callInst->getParent();
+              addPredecessor(callSiteBlock, callInst);
+              Node* callSite = getOrCreateNode(callSiteBlock, callInst);
+              callSite->addSuccessor(this);
+            }
+          }
+        }
       }
     }
   }

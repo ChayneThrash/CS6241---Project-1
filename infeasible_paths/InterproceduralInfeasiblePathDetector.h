@@ -143,14 +143,22 @@ namespace {
     std::set<std::pair<Query, Node*>> queriesResolvedInNode;
     Node* trueDestinationNode;
     Node* falseDestinationNode;
+    BasicBlock* topMostBasicBlock;
 
   public:
     InfeasiblePathDetector() {}
 
-    void detectPaths(Node& initialNode, InfeasiblePathResult& result) {
+    void detectPaths(Node& initialNode, InfeasiblePathResult& result, Module& m) {
       if (initialNode.endsWithConditionalBranch()) {
         return;
       }
+
+      Function* main = m.getFunction("main");
+      if (main == nullptr) {
+        errs() << "ERROR: could not get main...\n";
+      }
+      topMostBasicBlock = &(main->getEntryBlock());
+
       queryResolutions.clear();
       queriesResolvedInNode.clear();
 
@@ -197,6 +205,7 @@ namespace {
           std::pair<Query, Node*> currentBlockAndQuery = std::make_pair(query, n);
           
           if (queriesResolvedInNode.count(currentBlockAndQuery) != 0) {
+            errs() << n->basicBlock->getName() << "\n";
             continue;
           }
 
@@ -214,11 +223,9 @@ namespace {
                 if (qr.second.size() != 0 && qr.second.top() != callSiteOfExitedFunction) {
                   continue;
                 }
-                errs()<< "here";
                 if (qr.second.size() != 0 && qr.second.top() == callSiteOfExitedFunction) {
                   stackCopy.pop();
                 }
-                errs() << "again\n";
               }
 
               // Make sure queries propagated to function calls are associated with the proper calling context.
@@ -326,7 +333,7 @@ namespace {
 
         QueryResolution resolution;
         if(!resolve(*n, currentValue, resolution)) {
-          if (n == initialNode.getFunctionEntryNode()) {
+          if (n->basicBlock == topMostBasicBlock && n->programPointInBlock == findFunctionCallTopDown(topMostBasicBlock)) {
             queriesResolvedInNode.insert(std::make_pair(currentValue, n));
             std::stack<Node*> callStack;
             queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(QueryUndefined, callStack));
@@ -539,6 +546,15 @@ namespace {
           }
           else {
             resolution = QueryUndefined;
+            return true;
+          }
+        }
+      }
+      if (basicBlock.basicBlock == topMostBasicBlock && basicBlock.programPointInBlock == findFunctionCallTopDown(topMostBasicBlock)) {
+        if (isa<GlobalVariable>(q.lhs)) {
+          GlobalVariable* global = dyn_cast<GlobalVariable>(q.lhs);
+          if (isa<ConstantInt>(global->getInitializer())) {
+            resolution = resolveConstantAssignment(dyn_cast<ConstantInt>(global->getInitializer()), q);
             return true;
           }
         }

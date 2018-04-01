@@ -26,15 +26,19 @@ namespace {
 
   public:
     static char ID;
+    Module* m;
 
     InfeasibleTest() : FunctionPass(ID) {}
 
+
+    bool doInitialization(Module &M) override {
+      m = &M;
+      return false;
+    }
     bool runOnFunction(Function &F) override {
 
-      if (F.getName() != "main") {
-        return false;
-      }
       for(BasicBlock& b : F) {
+
         const TerminatorInst* terminator = b.getTerminator();
         if (terminator->getNumSuccessors() == 1 || terminator->getOpcode() != Instruction::Br) {
           continue;
@@ -43,7 +47,7 @@ namespace {
         InfeasiblePathResult result;
         InfeasiblePathDetector detector;
         Node initialNode(&b, nullptr);
-        detector.detectPaths(initialNode, result);
+        detector.detectPaths(initialNode, result, *m);
 
         errs()<< "BasicBlock: " << b.getName();
         errs()<< " Start set: ";
