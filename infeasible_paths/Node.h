@@ -44,9 +44,16 @@ struct Node {
   }
 
   Node(BasicBlock* bb, Instruction* programPoint, bool isStartingNode, std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes) : 
-        basicBlock(bb), programPointInBlock(programPoint), isExitOfFunction(false), isEntryOfFunction(false), successors(), predecessors(),
+        basicBlock(bb), isExitOfFunction(false), isEntryOfFunction(false), successors(), predecessors(),
         instructionsReversed(), successorsInitialized(false), predecessorsInitialized(false)
          {
+    if (programPoint != nullptr && !isFunctionCall(programPoint) ) {
+      // Determine function call to use as program point
+      programPointInBlock = findFunctionCallPriorToInstruction(basicBlock, programPoint);
+    }
+    else {
+      programPointInBlock = programPoint;
+    }
     populateInstructionList();
     isEntryOfFunction = checkIfEntryOfFunction();
     isExitOfFunction = checkIfExitOfFunction();
@@ -62,7 +69,8 @@ struct Node {
   }
 
   Node(BasicBlock* bb, Instruction* programPoint) : Node(bb, programPoint, true, nullptr)
-  {}
+  {   
+  }
 
   ~Node() {
     if (isStartingNode) {
@@ -143,6 +151,11 @@ struct Node {
     return (*allNodes)[std::make_pair(falseDestination, i)];
   }
 
+  Node* getNodeFor(BasicBlock* bb, Instruction* i) {
+    Instruction* startInstruction = findFunctionCallPriorToInstruction(bb, i);
+    return getOrCreateNode(bb, startInstruction);
+  }
+
   void addPredecessor(Node* node) {
     predecessorsInitialized = true;
     predecessors.insert(node);
@@ -168,6 +181,18 @@ private:
   std::map<std::pair<BasicBlock*, Instruction*>, Node*>* allNodes;
   //std::set<Node*> callSites;
 
+
+  bool isFunctionCall(Instruction* i) {
+    if (i == nullptr || i->getOpcode() != Instruction::Call) {
+      return false;
+    }
+    CallInst* callInst = dyn_cast<CallInst>(i);
+    Function* f = callInst->getCalledFunction();
+    if (f == nullptr) {
+      return false;
+    }
+    return true;
+  }
 
   void populatePredecessors() {
     bool functionFound = false;
@@ -394,6 +419,21 @@ private:
 
   bool checkIfExitOfFunction() {
     return programPointInBlock == nullptr && basicBlock->getTerminator()->getNumSuccessors() == 0;
+  }
+
+  Instruction* findFunctionCallPriorToInstruction(BasicBlock* bb, Instruction* i) {
+    Instruction* programPointToUse = nullptr;
+    for (BasicBlock::reverse_iterator iIter = bb->rbegin(); iIter != bb->rend(); ++iIter) {
+      Instruction& inst = *iIter;
+      if (&inst == i) {
+        break;
+      }
+
+      if (isFunctionCall(&inst)) {
+        programPointToUse = &inst;
+      }
+    }
+    return programPointToUse;
   }
 
 };
