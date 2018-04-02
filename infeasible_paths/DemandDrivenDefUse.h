@@ -75,10 +75,9 @@ namespace{
 										 queue<pair<BasicBlock*, set<pair<Query, QueryResolution>>>>& worklist, 
 										 BasicBlock& u){
 
-			set<pair<Query, QueryResolution>> q_;
 
 			// Do we need to propagate? 
-			if(resolve(def_use, v, e, ipp, Q, u, q_)){
+			if(resolve(def_use, v, e, ipp, Q, u)){
 
 				
 				if(Q.count(e.first) == 0){
@@ -103,7 +102,7 @@ namespace{
 		bool resolve(map<string, set<pair<BasicBlock*, BasicBlock*>>>& def_use, Value& v,
 								 pair<BasicBlock*, BasicBlock*> e, set<pair<Query, QueryResolution>>& ipp,
 								 map<BasicBlock*, set<pair<Query, QueryResolution>>> &Q,
-								 BasicBlock& u, set<pair<Query, QueryResolution>> &q_){
+								 BasicBlock& u){
 			
 			// Did we follow an infeasible path? 
 			if(intersection_(ipp, result.startSet[e]).size() != 0)
@@ -128,10 +127,7 @@ namespace{
 								def_use[v.getName()].insert(make_pair(e.first, &u));
 								return false;
 							}
-						
-					
-						
-			q_ = ipp;
+			
 			return true;
 		}
 	
