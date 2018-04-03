@@ -8,10 +8,7 @@ target triple = "x86_64-unknown-linux-gnu"
 ; Function Attrs: noinline nounwind uwtable
 define i32 @foo() #0 {
 entry:
-  %someVariable = alloca i32, align 4
-  store i32 1, i32* %someVariable, align 4
-  %0 = load i32, i32* %someVariable, align 4
-  ret i32 %0
+  ret i32 1
 }
 
 ; Function Attrs: noinline nounwind uwtable
@@ -32,18 +29,26 @@ if.then:                                          ; preds = %entry
 
 if.end:                                           ; preds = %if.then, %entry
   %1 = load i32, i32* %x, align 4
-  %cmp1 = icmp eq i32 %1, 0
+  %cmp1 = icmp sgt i32 %1, 3
   br i1 %cmp1, label %if.then2, label %if.else
 
 if.then2:                                         ; preds = %if.end
+  %2 = load i32, i32* %x, align 4
+  %cmp3 = icmp sgt i32 %2, 1
+  br i1 %cmp3, label %if.then4, label %if.end5
+
+if.then4:                                         ; preds = %if.then2
   store i32 1, i32* @temp, align 4
-  br label %if.end3
+  br label %if.end5
+
+if.end5:                                          ; preds = %if.then4, %if.then2
+  br label %if.end6
 
 if.else:                                          ; preds = %if.end
   store i32 2, i32* @temp, align 4
-  br label %if.end3
+  br label %if.end6
 
-if.end3:                                          ; preds = %if.else, %if.then2
+if.end6:                                          ; preds = %if.else, %if.end5
   ret i32 0
 }
 

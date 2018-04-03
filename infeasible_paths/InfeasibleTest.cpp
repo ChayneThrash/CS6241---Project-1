@@ -44,10 +44,6 @@ namespace {
           continue;
         }
 
-        if (F.getName() != "foo" || b.getName() != "entry") {
-          continue;
-        }
-
         InfeasiblePathResult result;
         InfeasiblePathDetector detector;
         Node initialNode(&b, nullptr);

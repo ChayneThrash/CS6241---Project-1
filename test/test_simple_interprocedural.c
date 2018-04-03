@@ -10,8 +10,10 @@ int main() {
     x = foo();
   }
 
-  if(x == 0) {
-    temp = 1;
+  if(x > 3) {
+    if (x > 1) {
+      temp = 1;
+    }
   }
   else {
     temp = 2;

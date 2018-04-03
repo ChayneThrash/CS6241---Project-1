@@ -152,7 +152,7 @@ namespace {
 
     void detectPaths(Node& incomingNode, InfeasiblePathResult& result, Module& m) {
       initialNode = &incomingNode;
-      if (initialNode->endsWithConditionalBranch()) {
+      if (!initialNode->endsWithConditionalBranch()) {
         return;
       }
       Function* main = m.getFunction("main");
@@ -182,6 +182,9 @@ namespace {
 
       trueDestinationNode = initialNode->getTrueEdge();
       falseDestinationNode = initialNode->getFalseEdge();
+
+      errs() << "true node: " << trueDestinationNode->basicBlock->getName() << "\n";
+      errs() << "false node: " << falseDestinationNode->basicBlock->getName() << "\n";
 
       std::map<std::pair<Function*, Query>, std::set<Query>> functionQueryCache;
 
@@ -256,17 +259,14 @@ namespace {
       std::stack<Node*> emptyCallStack;
       if (queryResolutions[std::make_pair(initialQuery, initialNode)].count(std::make_pair(QueryTrue, emptyCallStack)) > 0) {
         result.endSet[std::make_pair(initialNode, trueDestinationNode)].insert(std::make_tuple(initialQuery, QueryTrue, emptyCallStack));
+        visited[trueDestinationNode].push_back(initialQuery);
       }
 
       if (queryResolutions[std::make_pair(initialQuery, initialNode)].count(std::make_pair(QueryFalse, emptyCallStack)) > 0) {
         result.endSet[std::make_pair(initialNode, falseDestinationNode)].insert(std::make_tuple(initialQuery, QueryFalse, emptyCallStack));
+        visited[falseDestinationNode].push_back(initialQuery);
       }
-
-
-      visited[trueDestinationNode].push_back(initialQuery);
-      visited[falseDestinationNode].push_back(initialQuery);
-      queryResolutions[std::make_pair(initialQuery, trueDestinationNode)].insert(std::make_pair(QueryTrue, emptyCallStack));
-      queryResolutions[std::make_pair(initialQuery, trueDestinationNode)].insert(std::make_pair(QueryFalse, emptyCallStack));
+      
 
       for (std::pair<Node*, std::vector<Query>> visitedNode : visited) {
         Node* n = visitedNode.first;
@@ -293,14 +293,14 @@ namespace {
                 if (
                     queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryTrue, callStack)) > 0 
                     && std::count_if(queryResolutions[std::make_pair(substitutedQuery, pred)].begin(), queryResolutions[std::make_pair(substitutedQuery, pred)].end(), countNotTruePredicate) == 0
-                    && queryResolutions[std::make_pair(query, n)].size() > 1
+                    && (queryResolutions[std::make_pair(query, n)].size() > 1 || n == trueDestinationNode)
                   ) {
                   result.startSet[std::make_pair(pred, n)].insert(std::make_tuple(substitutedQuery, QueryTrue, callStack));
                 }
                 else if (
                     queryResolutions[std::make_pair(substitutedQuery, pred)].count(std::make_pair(QueryFalse, callStack)) > 0 
                     && std::count_if(queryResolutions[std::make_pair(substitutedQuery, pred)].begin(), queryResolutions[std::make_pair(substitutedQuery, pred)].end(), countNotFalsePredicate) == 0
-                    && queryResolutions[std::make_pair(query, n)].size() > 1
+                    && (queryResolutions[std::make_pair(query, n)].size() > 1 || n == falseDestinationNode)
                   ) {
                   result.startSet[std::make_pair(pred, n)].insert(std::make_tuple(substitutedQuery, QueryFalse, callStack));
                 }
@@ -430,11 +430,18 @@ namespace {
     }
 
     Query substitute(Node& basicBlock, Query q, std::map<Node*, Query>& querySubstitutedToPreds) {
+      return getSubstitutedQueries(basicBlock, q, querySubstitutedToPreds).back();
+    }
+
+    std::vector<Query> getSubstitutedQueries(Node& basicBlock, Query q, std::map<Node*, Query>& querySubstitutedToPreds) {
+      std::vector<Query> substituedQueries;
+      substituedQueries.push_back(q);
       for (Instruction* iIter : basicBlock.getReversedInstructions()) {
         Instruction& i = *iIter;
         if (i.getOpcode() == Instruction::Store && i.getOperand(1) == q.lhs) {
           if (!isa<ConstantInt>(i.getOperand(0))) {
             q.lhs = i.getOperand(0);
+            substituedQueries.push_back(q);
           }
         }
         else if (i.getOpcode() == Instruction::Call) {
@@ -449,13 +456,14 @@ namespace {
                 summaryQuery.lhs = returnInst->getReturnValue();
               }
               querySubstitutedToPreds[n] = summaryQuery;
-              return q;
+              return substituedQueries;
             }
           }
         }
         else if (q.lhs == &i) {
           if (i.getOpcode() == Instruction::Load) {
             q.lhs = i.getOperand(0);
+            substituedQueries.push_back(q);
           }
           else if (q.queryOperator == IsTrue) {
             if (i.getOpcode() == Instruction::Trunc) {
@@ -464,6 +472,7 @@ namespace {
                 IntegerType* integerType = dyn_cast<IntegerType>(truncInstruction->getDestTy());
                 if (integerType->getBitWidth() == 1) {
                   q.lhs = i.getOperand(0);
+                  substituedQueries.push_back(q);
                 }
               }
             }
@@ -475,6 +484,7 @@ namespace {
                   q.lhs = i.getOperand(1);
                   q.rhs = dyn_cast<ConstantInt>(i.getOperand(0));
                   q.queryOperator = reverseComparison(getQueryOperatorForPredicate(cmpInstruction->getPredicate()));
+                  substituedQueries.push_back(q);
                 }
               }
               else if (isa<ConstantInt>(i.getOperand(1))){
@@ -482,18 +492,17 @@ namespace {
                   q.lhs = i.getOperand(0);
                   q.rhs = dyn_cast<ConstantInt>(i.getOperand(1));
                   q.queryOperator = getQueryOperatorForPredicate(cmpInstruction->getPredicate());
+                  substituedQueries.push_back(q);
                 }
               }
             }
           }
         }
       }
-      //if (!basicBlock.isEntryOfFunction || basicBlock.basicBlock->getParent() == initialNode->basicBlock->getParent()) {
-        for (Node* n : basicBlock.getPredecessors()) {
-          querySubstitutedToPreds[n] = q;
-        }
-      //}
-      return q;
+      for (Node* n : basicBlock.getPredecessors()) {
+        querySubstitutedToPreds[n] = q;
+      }
+      return substituedQueries;
     }
 
     bool resolve(Node& basicBlock, Query q, QueryResolution& resolution) {
@@ -508,6 +517,12 @@ namespace {
           }
           else {
             q.lhs = i.getOperand(0);
+          }
+        }
+        else if (isDereferenceOf(q.lhs, &i)) {
+          if (q.queryOperator == IsTrue) {
+            resolution = QueryTrue;
+            return true;
           }
         }
         else if (i.getOpcode() == Instruction::Call) {
@@ -584,6 +599,16 @@ namespace {
           }
         }
       }
+
+      if (basicBlock.getPredecessors().size() == 1) {
+        if ((*(basicBlock.getPredecessors().begin()))->endsWithConditionalBranch()) {
+          if (priorConditionGuaranteesCurrent(&basicBlock, (*(basicBlock.getPredecessors().begin())), q)) {
+            resolution = QueryFalse;
+            return true;
+          }
+        }
+      }
+
       return false;
     }
 
@@ -651,6 +676,50 @@ namespace {
         case IsUnsignedLessThanOrEqual: return IsUnsignedGreaterThan;
         default: return IsTrue;
       }
+    }
+
+    bool isDereferenceOf(Value* value, Instruction* i) {
+      if (i->getOpcode() == Instruction::GetElementPtr) {
+        GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(i);
+        if (gepInst->getPointerOperand() == value) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    bool priorConditionGuaranteesCurrent(Node* currentNode, Node* n, Query current) {
+
+      Query q;
+      q.lhs = n->getBranchCondition();
+      q.queryOperator = IsTrue;
+      q.rhs = nullptr;
+      std::map<Node*, Query> temp;
+      bool isTrueBranch = currentNode == n->getTrueEdge();
+      for (Query queryToCheck : getSubstitutedQueries(*n, q, temp)) {
+        if (!isTrueBranch) {
+          queryToCheck.queryOperator = reverseComparison(queryToCheck.queryOperator);
+        }
+        if (queryToCheck.lhs == current.lhs) {
+          if (current.queryOperator == queryToCheck.queryOperator) {
+            switch(current.queryOperator)
+            {
+              case IsTrue: return true;
+              case AreEqual: 
+              case AreNotEqual: return (current.rhs->getValue() == queryToCheck.rhs->getValue());
+              case IsSignedGreaterThan: return (queryToCheck.rhs->getValue().sge(current.rhs->getValue()));
+              case IsUnsignedGreaterThan: return (queryToCheck.rhs->getValue().uge(current.rhs->getValue()));
+              case IsSignedGreaterThanOrEqual: return (queryToCheck.rhs->getValue().sge(current.rhs->getValue()));
+              case IsUnsignedGreaterThanOrEqual: return (queryToCheck.rhs->getValue().uge(current.rhs->getValue()));
+              case IsSignedLessThan: return (queryToCheck.rhs->getValue().sle(current.rhs->getValue()));
+              case IsUnsignedLessThan: return (queryToCheck.rhs->getValue().ule(current.rhs->getValue()));
+              case IsSignedLessThanOrEqual: return (queryToCheck.rhs->getValue().sle(current.rhs->getValue()));
+              case IsUnsignedLessThanOrEqual: return (queryToCheck.rhs->getValue().ule(current.rhs->getValue()));
+            }
+          }
+        }
+      }
+      return false;
     }
 
   };

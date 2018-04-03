@@ -119,7 +119,7 @@ struct Node {
 
   bool endsWithConditionalBranch() const {
     const TerminatorInst* terminator = basicBlock->getTerminator();
-    if (terminator->getNumSuccessors() == 1 || terminator->getOpcode() != Instruction::Br) {
+    if (terminator->getNumSuccessors() == 2 && terminator->getOpcode() == Instruction::Br) {
       return true;
     }
     else {
