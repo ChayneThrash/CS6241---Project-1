@@ -521,7 +521,7 @@ namespace {
         }
         else if (isDereferenceOf(q.lhs, &i)) {
           if (q.queryOperator == IsTrue) {
-            resolution = QueryTrue;
+            resolution = QueryFalse;
             return true;
           }
         }
