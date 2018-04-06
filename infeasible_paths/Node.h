@@ -23,7 +23,7 @@ Instruction* findFunctionCallTopDown(BasicBlock* b) {
     if (i.getOpcode() == Instruction::Call) {
       CallInst* callInst = dyn_cast<CallInst>(&i);
       Function* f = callInst->getCalledFunction();
-      if (f != nullptr) {
+      if (f != nullptr && !f->isDeclaration()) {
         return &i;
       }
     }
@@ -188,7 +188,7 @@ private:
     }
     CallInst* callInst = dyn_cast<CallInst>(i);
     Function* f = callInst->getCalledFunction();
-    if (f == nullptr) {
+    if (f == nullptr && !f->isDeclaration()) {
       return false;
     }
     return true;
@@ -202,7 +202,7 @@ private:
         if (i.getOpcode() == Instruction::Call) {
           CallInst* callInst = dyn_cast<CallInst>(&i);
           Function* f = callInst->getCalledFunction();
-          if (f != nullptr) {
+          if (f != nullptr && !f->isDeclaration()) {
             functionFound = true;
             addFunctionExitBlocksToPredecessors(*f, callInst);
             Node* callSite = getOrCreateNode(basicBlock, &i);
@@ -226,7 +226,7 @@ private:
         if (i.getOpcode() == Instruction::Call) {
           CallInst* callInst = dyn_cast<CallInst>(&i);
           Function* f = callInst->getCalledFunction();
-          if (f != nullptr) {
+          if (f != nullptr && !f->isDeclaration()) {
             functionFound = true;
             addFunctionExitBlocksToPredecessors(*f, callInst);
             Node* callSite = getOrCreateNode(basicBlock, &i);
@@ -291,7 +291,7 @@ private:
         if (i.getOpcode() == Instruction::Call) {
           CallInst* callInst = dyn_cast<CallInst>(&i);
           Function* f = callInst->getCalledFunction();
-          if (f != nullptr) {
+          if (f != nullptr && !f->isDeclaration()) {
             break;
           }
         }
@@ -313,7 +313,7 @@ private:
         if (i.getOpcode() == Instruction::Call) {
           CallInst* callInst = dyn_cast<CallInst>(&i);
           Function* f = callInst->getCalledFunction();
-          if (f != nullptr) {
+          if (f != nullptr && !f->isDeclaration()) {
             break;
           }
         }
@@ -403,7 +403,7 @@ private:
       if (i.getOpcode() == Instruction::Call) {
         CallInst* callInst = dyn_cast<CallInst>(&i);
         Function* f = callInst->getCalledFunction();
-        if (f != nullptr) {
+        if (f != nullptr && !f->isDeclaration()) {
           return &i;
         }
       }

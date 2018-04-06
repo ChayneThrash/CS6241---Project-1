@@ -1,7 +1,8 @@
+#include <stdio.h>
 int temp = 0;
 
 int main() {
-
+  fprintf(stdin, "hello");
   int x = 5;
 
   if (temp == 0) {
