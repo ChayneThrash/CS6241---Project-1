@@ -79,9 +79,10 @@ namespace {
     ConstantInt* rhs;
     bool isSummaryNodeQuery;
     Query* originalQuery;
+    std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations;
 
     bool operator==(const Query& other) const {
-      return this->lhs == other.lhs && this->rhs == other.rhs && this->queryOperator == other.queryOperator && this->isSummaryNodeQuery == other.isSummaryNodeQuery;
+      return this->lhs == other.lhs && this->rhs == other.rhs && this->queryOperator == other.queryOperator && this->isSummaryNodeQuery == other.isSummaryNodeQuery && this->intermediateOperations == other.intermediateOperations;
     }
 
     bool operator<(const Query& other) const {
@@ -89,7 +90,10 @@ namespace {
         if (this->queryOperator == other.queryOperator) {
           if (this->rhs == other.rhs) {
             if (this->isSummaryNodeQuery == other.isSummaryNodeQuery) {
-              return false;
+              if (this->intermediateOperations == other.intermediateOperations) {
+                return false;
+              }
+              return this->intermediateOperations < other.intermediateOperations;
             }
             return this->isSummaryNodeQuery < other.isSummaryNodeQuery;
           }
@@ -182,9 +186,6 @@ namespace {
 
       trueDestinationNode = initialNode->getTrueEdge();
       falseDestinationNode = initialNode->getFalseEdge();
-
-      errs() << "true node: " << trueDestinationNode->basicBlock->getName() << "\n";
-      errs() << "false node: " << falseDestinationNode->basicBlock->getName() << "\n";
 
       std::map<std::pair<Function*, Query>, std::set<Query>> functionQueryCache;
 
@@ -497,6 +498,20 @@ namespace {
               }
             }
           }
+          else if (i.getOpcode() == Instruction::Add) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
         }
       }
       for (Node* n : basicBlock.getPredecessors()) {
@@ -584,6 +599,34 @@ namespace {
               }
             }
           }
+          else if (i.getOpcode() == Instruction::Add) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+              resolution = QueryUndefined;
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+
+              APInt addResult = c1->getValue() + c2->getValue();
+              resolution = resolveConstantAssignment(addResult, q);
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
           else {
             resolution = QueryUndefined;
             return true;
@@ -613,12 +656,27 @@ namespace {
     }
 
     QueryResolution resolveConstantAssignment(ConstantInt* constant, Query& q) {
+      return resolveConstantAssignment(constant->getValue(), q);
+    }
+
+    QueryResolution resolveConstantAssignment(const APInt& constant, Query& q) {
+      std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations = q.intermediateOperations;
+      APInt value = constant;
+      while (intermediateOperations.size() > 0) {
+        std::pair<unsigned, ConstantInt*> operation = intermediateOperations.top();
+        intermediateOperations.pop();
+        switch(operation.first)
+        {
+          case Instruction::Add: value = value + operation.second->getValue(); break;
+          default: break;
+        }
+      }
       switch(q.queryOperator)
       {
-        case IsTrue: return (constant->isZero()) ? QueryTrue : QueryFalse;
-        case AreEqual: return (q.rhs->getValue() == constant->getValue()) ? QueryFalse : QueryTrue;
-        case AreNotEqual: return (q.rhs->getValue() != constant->getValue()) ? QueryFalse : QueryTrue;
-        default: return getQueryResolutionForConstantComparison(constant, q.rhs, q.queryOperator);
+        case IsTrue: return (value.getBoolValue()) ? QueryFalse : QueryTrue;
+        case AreEqual: return (q.rhs->getValue() == value) ? QueryFalse : QueryTrue;
+        case AreNotEqual: return (q.rhs->getValue() != value) ? QueryFalse : QueryTrue;
+        default: return getQueryResolutionForConstantComparison(value, q.rhs->getValue(), q.queryOperator);
       }
     }
 
@@ -629,18 +687,22 @@ namespace {
     }
 
     QueryResolution getQueryResolutionForConstantComparison(ConstantInt* c1, ConstantInt* c2, QueryOperator qOp) {
+      return getQueryResolutionForConstantComparison(c1->getValue(), c2->getValue(), qOp);
+    }
+
+    QueryResolution getQueryResolutionForConstantComparison(const APInt& c1, const APInt c2, QueryOperator qOp) {
       switch(qOp)
       {
-        case AreEqual: return (c1->getValue() == c2->getValue()) ? QueryFalse : QueryTrue;
-        case AreNotEqual: return (c1->getValue() != c2->getValue()) ? QueryFalse : QueryTrue; 
-        case IsSignedGreaterThan: return (c1->getValue().sgt(c2->getValue())) ? QueryFalse : QueryTrue;
-        case IsUnsignedGreaterThan: return (c1->getValue().ugt(c2->getValue())) ? QueryFalse : QueryTrue;
-        case IsSignedGreaterThanOrEqual: return (c1->getValue().sge(c2->getValue())) ? QueryFalse : QueryTrue;
-        case IsUnsignedGreaterThanOrEqual: return (c1->getValue().uge(c2->getValue())) ? QueryFalse : QueryTrue;
-        case IsSignedLessThan: return (c1->getValue().slt(c2->getValue())) ? QueryFalse : QueryTrue;
-        case IsUnsignedLessThan: return (c1->getValue().ult(c2->getValue())) ? QueryFalse : QueryTrue;
-        case IsSignedLessThanOrEqual: return (c1->getValue().sle(c2->getValue())) ? QueryFalse : QueryTrue;
-        case IsUnsignedLessThanOrEqual: return (c1->getValue().ule(c2->getValue())) ? QueryFalse : QueryTrue;
+        case AreEqual: return (c1 == c2) ? QueryFalse : QueryTrue;
+        case AreNotEqual: return (c1 != c2) ? QueryFalse : QueryTrue; 
+        case IsSignedGreaterThan: return (c1.sgt(c2)) ? QueryFalse : QueryTrue;
+        case IsUnsignedGreaterThan: return (c1.ugt(c2)) ? QueryFalse : QueryTrue;
+        case IsSignedGreaterThanOrEqual: return (c1.sge(c2)) ? QueryFalse : QueryTrue;
+        case IsUnsignedGreaterThanOrEqual: return (c1.uge(c2)) ? QueryFalse : QueryTrue;
+        case IsSignedLessThan: return (c1.slt(c2)) ? QueryFalse : QueryTrue;
+        case IsUnsignedLessThan: return (c1.ult(c2)) ? QueryFalse : QueryTrue;
+        case IsSignedLessThanOrEqual: return (c1.sle(c2)) ? QueryFalse : QueryTrue;
+        case IsUnsignedLessThanOrEqual: return (c1.ule(c2)) ? QueryFalse : QueryTrue;
         default: return QueryUndefined;
       }
     }
@@ -695,6 +757,19 @@ namespace {
       q.queryOperator = IsTrue;
       q.rhs = nullptr;
       std::map<Node*, Query> temp;
+
+      std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations = q.intermediateOperations;
+      APInt value = current.rhs->getValue();
+      while (intermediateOperations.size() > 0) {
+        std::pair<unsigned, ConstantInt*> operation = intermediateOperations.top();
+        intermediateOperations.pop();
+        switch(operation.first)
+        {
+          case Instruction::Add: value = value + operation.second->getValue(); break;
+          default: break;
+        }
+      }
+
       bool isTrueBranch = currentNode == n->getTrueEdge();
       for (Query queryToCheck : getSubstitutedQueries(*n, q, temp)) {
         if (!isTrueBranch) {
@@ -706,15 +781,15 @@ namespace {
             {
               case IsTrue: return true;
               case AreEqual: 
-              case AreNotEqual: return (current.rhs->getValue() == queryToCheck.rhs->getValue());
-              case IsSignedGreaterThan: return (queryToCheck.rhs->getValue().sge(current.rhs->getValue()));
-              case IsUnsignedGreaterThan: return (queryToCheck.rhs->getValue().uge(current.rhs->getValue()));
-              case IsSignedGreaterThanOrEqual: return (queryToCheck.rhs->getValue().sge(current.rhs->getValue()));
-              case IsUnsignedGreaterThanOrEqual: return (queryToCheck.rhs->getValue().uge(current.rhs->getValue()));
-              case IsSignedLessThan: return (queryToCheck.rhs->getValue().sle(current.rhs->getValue()));
-              case IsUnsignedLessThan: return (queryToCheck.rhs->getValue().ule(current.rhs->getValue()));
-              case IsSignedLessThanOrEqual: return (queryToCheck.rhs->getValue().sle(current.rhs->getValue()));
-              case IsUnsignedLessThanOrEqual: return (queryToCheck.rhs->getValue().ule(current.rhs->getValue()));
+              case AreNotEqual: return (value == queryToCheck.rhs->getValue());
+              case IsSignedGreaterThan: return (queryToCheck.rhs->getValue().sge(value));
+              case IsUnsignedGreaterThan: return (queryToCheck.rhs->getValue().uge(value));
+              case IsSignedGreaterThanOrEqual: return (queryToCheck.rhs->getValue().sge(value));
+              case IsUnsignedGreaterThanOrEqual: return (queryToCheck.rhs->getValue().uge(value));
+              case IsSignedLessThan: return (queryToCheck.rhs->getValue().sle(value));
+              case IsUnsignedLessThan: return (queryToCheck.rhs->getValue().ule(value));
+              case IsSignedLessThanOrEqual: return (queryToCheck.rhs->getValue().sle(value));
+              case IsUnsignedLessThanOrEqual: return (queryToCheck.rhs->getValue().ule(value));
             }
           }
         }
