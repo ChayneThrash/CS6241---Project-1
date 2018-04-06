@@ -512,6 +512,62 @@ namespace {
               q.lhs = op1;
             }
           }
+          else if (i.getOpcode() == Instruction::Sub) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
+          else if (i.getOpcode() == Instruction::Mul) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
+          else if (i.getOpcode() == Instruction::UDiv) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
+          else if (i.getOpcode() == Instruction::SDiv) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
         }
       }
       for (Node* n : basicBlock.getPredecessors()) {
@@ -627,6 +683,118 @@ namespace {
               q.lhs = op1;
             }
           }
+          else if (i.getOpcode() == Instruction::Sub) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+              resolution = QueryUndefined;
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+
+              APInt addResult = c1->getValue() - c2->getValue();
+              resolution = resolveConstantAssignment(addResult, q);
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
+          else if (i.getOpcode() == Instruction::Mul) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+              resolution = QueryUndefined;
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+
+              APInt multResult = c1->getValue() * c2->getValue();
+              resolution = resolveConstantAssignment(multResult, q);
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
+          else if (i.getOpcode() == Instruction::UDiv) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+              resolution = QueryUndefined;
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+
+              APInt multResult = c1->getValue().udiv(c2->getValue());
+              resolution = resolveConstantAssignment(multResult, q);
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
+          else if (i.getOpcode() == Instruction::SDiv) {
+
+            Value* op1 = i.getOperand(0);
+            Value* op2 = i.getOperand(1);
+
+            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+              resolution = QueryUndefined;
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+
+              APInt multResult = c1->getValue().sdiv(c2->getValue());
+              resolution = resolveConstantAssignment(multResult, q);
+              return true;
+            }
+
+            if (isa<ConstantInt>(op1)) {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+              q.lhs = op2;
+            }
+            else {
+              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+              q.lhs = op1;
+            }
+          }
           else {
             resolution = QueryUndefined;
             return true;
@@ -668,6 +836,10 @@ namespace {
         switch(operation.first)
         {
           case Instruction::Add: value = value + operation.second->getValue(); break;
+          case Instruction::Sub: value = value - operation.second->getValue(); break;
+          case Instruction::Mul: value = value * operation.second->getValue(); break;
+          case Instruction::UDiv: value = value.udiv(operation.second->getValue()); break;
+          case Instruction::SDiv: value = value.sdiv(operation.second->getValue()); break;
           default: break;
         }
       }
@@ -766,6 +938,10 @@ namespace {
         switch(operation.first)
         {
           case Instruction::Add: value = value + operation.second->getValue(); break;
+          case Instruction::Sub: value = value - operation.second->getValue(); break;
+          case Instruction::Mul: value = value * operation.second->getValue(); break;
+          case Instruction::UDiv: value = value.udiv(operation.second->getValue()); break;
+          case Instruction::SDiv: value = value.sdiv(operation.second->getValue()); break;
           default: break;
         }
       }
