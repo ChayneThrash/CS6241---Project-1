@@ -1,0 +1,103 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% University/School Laboratory Report
+% LaTeX Template
+% Version 3.1 (25/3/14)
+%
+% This template has been downloaded from:
+% http://www.LaTeXTemplates.com
+%
+% Original author:
+% Linux and Unix Users Group at Virginia Tech Wiki 
+% (https://vtluug.org/wiki/Example_LaTeX_chem_lab_report)
+%
+% License:
+% CC BY-NC-SA 3.0 (http://creativecommons.org/licenses/by-nc-sa/3.0/)
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%----------------------------------------------------------------------------------------
+%	PACKAGES AND DOCUMENT CONFIGURATIONS
+%----------------------------------------------------------------------------------------
+
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{wrapfig}
+\graphicspath{ {.} }
+\usepackage{listings}
+\usepackage{multirow}
+\renewcommand\thesubsection{\arabic{subsection}}
+\renewcommand\thesubsubsection{\alph{subsubsection}}
+\usepackage[justification=centering]{caption}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=blue,
+}
+\usepackage[margin=1.5in]{geometry}
+\usepackage{float}
+\usepackage{array}
+\usepackage{adjustbox}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+
+%----------------------------------------------------------------------------------------
+%	DOCUMENT INFORMATION
+%----------------------------------------------------------------------------------------
+
+\title{CS 6241: Compiler Design \\~\\ Refined Def-Use Analysis Implementation Using Infeasible Paths Information} % Title
+
+\author{Chayne \textsc{Thrash} and Mansour \textsc{Alharthi}} % Author name
+
+\date{\today} % Date for the report
+
+\begin{document}
+
+\maketitle % Insert the title, author and date
+
+\begin{center}
+\begin{tabular}{l r}
+Instructor: & Professor Santosh \textsc{Pande} % Instructor/supervisor
+\end{tabular}
+\end{center}
+
+\subsection{Introduction}
+In this project, we first implemented an algorithm that detects both the inter- and intra- procedural infeasible paths using branch correlation. Utilizing this information, we implemented a demand-driven def-use analysis that discards the chains along infeasible paths and therefor give a more accurate data flow information. Both algorithms were introduced in the paper "Refining Data Flow Information Using Infeasible Paths" by Gupta, Soffa, and Bodik. Finally, we improved the introduced infeasible path detection algorithm by accounting for more cases than the ones mentioned in the paper. We show our improved version with test results in this report.
+
+\subsection{Improved Infeasible Paths Detection}
+We improved the algorithm presented in the paper by accounting for more cases during the backward propagation while detecting infeasible paths. 
+
+\subsection{Test Results}
+~\\~
+\begin{adjustbox}{center}
+\renewcommand{\arraystretch}{2}
+%\begin{table}[]
+\begin{tabular}{| C{3cm} | C{3cm} | C{3cm} | C{3cm} | C{3cm} |}
+\hline
+Intra-procedural Infeasible Paths Detection & Intra-procedural Demand-Driven Def-Use Analysis & Inter-procedural Infeasible Paths Detection  & Inter-procedural Demand-Driven Def-Use Analysis & Node \\ \cline{1-5} 
+Chayne & Mansour & Chayne & Mansour & Chayne \\ \cline{1-5}
+
+\end{tabular}
+%\end{table}
+\end{adjustbox}
+\captionof{table}{breakdown of work among team members} 
+
+\subsection{Work Breakdown}
+~\\~
+\begin{adjustbox}{center}
+\renewcommand{\arraystretch}{2}
+%\begin{table}[]
+\begin{tabular}{| C{3cm} | C{3cm} | C{3cm} | C{3cm} | C{3cm} |}
+\hline
+Intra-procedural Infeasible Paths Detection & Intra-procedural Demand-Driven Def-Use Analysis & Inter-procedural Infeasible Paths Detection  & Inter-procedural Demand-Driven Def-Use Analysis & Node \\ \cline{1-5} 
+Chayne & Mansour & Chayne & Mansour & Chayne \\ \cline{1-5}
+
+\end{tabular}
+%\end{table}
+\end{adjustbox}
+\captionof{table}{breakdown of work among team members} 
+
+\end{document}
