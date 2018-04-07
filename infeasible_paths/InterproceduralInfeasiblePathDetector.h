@@ -597,6 +597,12 @@ namespace {
           }
         }
         else if (i.getOpcode() == Instruction::Call) {
+          CallInst* callInst = dyn_cast<CallInst>(&i);
+          Function* f = callInst->getCalledFunction();
+          if ((f == nullptr || f->isDeclaration()) && isa<GlobalVariable>(q.lhs)) {
+            resolution = QueryUndefined;
+            return true;
+          }
           continue;
         }
         else if (i.getOpcode() == Instruction::Ret) {
