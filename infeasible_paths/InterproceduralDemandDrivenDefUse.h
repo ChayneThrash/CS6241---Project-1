@@ -20,7 +20,7 @@ namespace{
 		map<string, set<pair<BasicBlock*, BasicBlock*>>> *def_use;
 
 		// IPP
-		typedef set<tuple<Query, QueryResolution, stack<Node*>>> IPP;
+		typedef set<pair<Query, QueryResolution>> IPP;
 
 		// Summery node has: 
 		// 1) def-uses 2) is it transp? 3)ipp_
@@ -47,24 +47,41 @@ namespace{
 
     InterproceduralDemandDrivenDefUse() {}
 
-		void startBlockAnalysis(BasicBlock& B, Module &m, map<string, set<pair<BasicBlock*, BasicBlock*>>>& def_use){		
+		void startBlockAnalysis(BasicBlock& B, Module &m, map<string, set<pair<BasicBlock*, BasicBlock*>>>& def_use, set<string>& localVar){		
 			this->def_use = &def_use; 
 			this->m = &m;
 
+			set<Value*> local_def; 
+
 			// Iterate over used variables, call demand driven analysis on each 
-			for(BasicBlock::iterator ins = B.begin(); ins != B.end(); ++ins)
-					if ((*ins).getOpcode() == Instruction::Load){
-                Value* op = ins->getOperand(0);	
-								if(op->hasName())
-										demandDrivenDefUseAnalysis(*op, Node(&B, &(*ins)));
-								
+			for(BasicBlock::iterator ins = B.begin(); ins != B.end(); ++ins){
+					// Did we find an allocate instruction? Means that the scope of this 
+					// variable is limited to the function only... Do intraprocedural 
+					// def-use analysis only. 
+					if ((*ins).getOpcode() == Instruction::Alloca)
+						localVar.insert(ins->getName());
+					if ((*ins).getOpcode() == Instruction::Store){
+            Value* op = ins->getOperand(1);
+						if(op->hasName())
+							local_def.insert(op);
+					}		
+					else if ((*ins).getOpcode() == Instruction::Load){
+            Value* op = ins->getOperand(0);
+						bool isLocal = localVar.find(op->getName()) != localVar.end();
+						if(op->hasName()){
+							if(local_def.find(op) != local_def.end() && isLocal)
+								def_use[op->getName()].insert(make_pair(&B, &B));
+							else
+								demandDrivenDefUseAnalysis(*op, Node(&B, &(*ins)), isLocal);
+						}
 					}		
 			
-
+			}
     }
 
-		void demandDrivenDefUseAnalysis(Value& v, Node u){
-			
+		void demandDrivenDefUseAnalysis(Value& v, Node u, bool isLocal){
+			detector.detectPaths(u, result, *m);
+
 		  worklist = queue<pair<Node*, DUQuery>>();
 			Q = map<Node*, DUQuery>(); 
 			SNMap = map<tuple<Node*, Value*, IPP>, SN>() ;
@@ -74,61 +91,61 @@ namespace{
 			
 			// Iterate predecessor edgges .. raise q 
       for (Node* pred : u.getPredecessors())
-				raise_query(v, make_pair(pred, &u), initial_query, u);
+				raise_query(v, make_pair(pred, &u), initial_query, u, isLocal);
 			
 
 			// Iterate worklist 
 			while(!worklist.empty()) {
 				pair<Node*, DUQuery> workItem = worklist.front();
         worklist.pop();
-
-				////////////////////////////THIS NEED REVIEW ///////////////////////////////////
 				
 				// Case n is call site node
-				if(Function *f = isFunctionCall(workItem.first->getReversedInstructions().back())){
+				if(isCallSite(workItem.first) && !isLocal){
 					// Keeping track of call sites
 					key.push(workItem.first); 
 					
-					for(Node* x : getFunctionExitNodes(*f)){
+					for(Node* x : workItem.first->getPredecessors()){
 					
-						if(SNMap.count(make_tuple(x, v, get<1>(workItem.second))) == 0){
+						if(SNMap.count(make_tuple(x, &v, get<0>(workItem.second))) == 0){
 							SN s = make_tuple(map<string, set<pair<BasicBlock*, BasicBlock*>>>() , false, IPP());
-							raise_query(v, make_pair(x, workItem.first), DUQuery(get<1>(workItem.second), s, true));
+							DUQuery q_ = make_tuple(get<0>(workItem.second), s, true);
+							raise_query(v, make_pair(x, workItem.first), q_, u, isLocal);
 						}else{
 
-							add_to_def_use(get<1>(SNMap.at(make_tuple(x, v, get<1>(workItem.second)))), v.getName());
+							add_to_def_use(get<0>(SNMap.at(make_tuple(x, &v, get<0>(workItem.second)))), v.getName());
 
-							if(get<2>(SNMap.at(make_tuple(x, v, workItem.second.first))))
-								for (Node* pred : workItem.first.getPredecessors())
-									raise_query(v, make_pair(pred, workItem.first), DUQuery(get<3>(SNMap.at(make_tuple(x, v, get<1>(workItem.second)))), get<2>(workItem.second), true), u);
+							if(get<1>(SNMap.at(make_tuple(x, &v, get<0>(workItem.second))))){
+								for (Node* pred : workItem.first->getPredecessors()){
+									DUQuery q_ = make_tuple(get<2>(SNMap.at(make_tuple(x, &v, get<0>(workItem.second)))), get<1>(workItem.second), true);
+									raise_query(v, make_pair(pred, workItem.first), q_, u, isLocal);
+								}
+							}
 						}
 					}
 
-				}else if(workItem.first->isEntryOfFunction){
-					key.pop(); 
-
-					if (get<2>(workItem.second)){
-						get<2>(get<2>(workItem.second)) = true;
-						get<3>(get<2>(workItem.second)) = get<1>(workItem.second); 
-					}
+				}else if(workItem.first->isEntryOfFunction  && !isLocal){
+					if(!key.empty())
+						key.pop(); 
 					
-					for(Function &func : m)
-						for(BaiscBlock &b : func)
-							for(Instruction &i: b)
-								if(Function *f = isFunctionCall(workItem.first->getReversedInstructions().back()) == workItem.first.basicBlock->getParent())
-									raise_query(v, make_pair(Node(b, i), workItem.first), workItem.second, u);
+					if (get<2>(workItem.second)){
+						get<1>(get<1>(workItem.second)) = true;
+						get<2>(get<1>(workItem.second)) = get<0>(workItem.second); 
+					}
+
+					for (Node* pred : workItem.first->getPredecessors())
+						raise_query(v, make_pair(pred, workItem.first), workItem.second, u, isLocal);
 				}else{
-					for (Node* pred : predecessors(workItem.first))
-						raise_query(v, make_pair(pred, workItem.first), workItem.second, u);
+					for (Node* pred : workItem.first->getPredecessors())
+						raise_query(v, make_pair(pred, workItem.first), workItem.second, u, isLocal);
 				}
 			}
 		}
 
 
-		void raise_query(Value& v, pair<Node*, Node*> e, DUQuery &q, Node& u){
+		void raise_query(Value& v, pair<Node*, Node*> e, DUQuery &q, Node& u, bool isLocal){
 
 			// Do we need to propagate? 
-			if(resolve(v, e, q, u)){
+			if(resolve(v, e, q, u, isLocal)){
 
 				
 				if(Q.count(e.first) == 0){
@@ -139,9 +156,9 @@ namespace{
 				}else{
 
 					DUQuery temp = Q.at(e.first);
-					Q[e.first].first = intersection_(Q.at(e.first).first, q.first);
+					get<0>(Q[e.first]) = intersection_(get<0>(Q.at(e.first)), get<0>(q));
 
-					if(temp.first != Q.at(e.first).first)
+					if(get<0>(temp) != get<0>(Q.at(e.first)))
 						worklist.push(make_pair(e.first, Q.at(e.first)));
 
 				}
@@ -150,48 +167,56 @@ namespace{
 		}
 
 
-		bool resolve(Value& v, pair<Node*, Node*> e, DUQuery &q, Node& u){
+		bool resolve(Value& v, pair<Node*, Node*> e, DUQuery &q, Node& u, bool isLocal){
 
 			// Did we follow an infeasible path? 
-			if(intersection_(q.first, result.getStartSetFor(make_tuple(e.first, e.second, key))).size() != 0)
+			tuple<Node*, Node*, stack<Node*>> resultKey = make_tuple(e.first, e.second, key);
+			IPP startSet = result.getStartSetFor(resultKey);
+			if(intersection_(get<0>(q), startSet).size() != 0) 
 				return false;
 
 			// Remove paths in progress that are no longer followed
-			q.first = intersection_(q.first, result.getPresentSetFor(make_tuple(e.first, e.second, key)));
+				IPP presentSet = result.getPresentSetFor(resultKey);
+			get<0>(q) = intersection_(get<0>(q), presentSet);
 
 			// Add paths in progress that are started at edge e
-			q.first = union_(q.first, result.getEndSetFor(make_tuple(e.first, e.second, key)));
+			IPP endSet = result.getEndSetFor(resultKey);
+			get<0>(q) = union_(get<0>(q), endSet);
+
 
 			// Rename 
-			for (tuple<Query, QueryResolution, std::stack<Node*>> t : q.first) {
-				q.first.erase(t);
-				///////////////////////////// USAGE OF NEW SUBSTITUTE /////////////////////////
-				q.first.insert(make_pair(detector.substitute((*e.first), p.first), p.second));
+			for (pair<Query, QueryResolution> p : get<0>(q)) {
+				get<0>(q).erase(p);
+				std::map<Node*, Query> dummy; 
+				Query newQuery = detector.substitute(*e.first, p.first, dummy);
+				get<0>(q).insert(make_pair(newQuery, p.second));
 			}
 
 			// Add to def-use and terminate if we found a def 
-			for(vector<Instruction*>::reverse_iterator i = e.first->getReversedInstructions()->rbegin(); 
-					i != e.first->getReversedInstructions()->rend(); ++i)
-					if (i->getOpcode() == Instruction::Store)
-							if(i->getOperand(1)->getName() == v.getName()){
-								def_use[v.getName()].insert(make_pair(e.first->basicBlock, u->basicBlock));
+			vector<Instruction*> instructions =  e.first->getReversedInstructions();
+			for(vector<Instruction*>::reverse_iterator i = instructions.rbegin(); i != instructions.rend(); ++i)
+					if ((*i)->getOpcode() == Instruction::Store)
+							if((*i)->getOperand(1)->getName() == v.getName()){
+								if(isLocal && (e.first->basicBlock->getParent() != u.basicBlock->getParent()))
+									continue;
+								pair<BasicBlock*, BasicBlock*> defUse = make_pair(e.first->basicBlock, u.basicBlock);
+								(*def_use)[v.getName()].insert(defUse);
+								
+								// Is it a summery node query?									
+								if(get<2>(q) && !isLocal){
+									SN s = get<1>(q);
+									get<0>(s)[v.getName()].insert(defUse);
+								}
+
 								return false;
 							}
 
 			return true;
 		}
 
-		// From InterproceduralInfeasiblePathDetector with modification .. for now just copy
-		Function* isFunctionCall(Instruction* i) {
-		  if (i == nullptr || i->getOpcode() != Instruction::Call) {
-		    return nullptr;
-		  }
-		  CallInst* callInst = dyn_cast<CallInst>(i);
-		  Function* f = callInst->getCalledFunction();
-
-		  return f;
-		}	
-
+		bool isCallSite(Node* &u){
+				return u->getSuccessors().size() == 1 && (*(u->getSuccessors().begin()))->isEntryOfFunction;
+		}
 
 		// Returns the intersection of two sets
 		IPP intersection_(IPP& s1, IPP& s2){
@@ -210,21 +235,10 @@ namespace{
 		}
 
 		void add_to_def_use(map<string, set<pair<BasicBlock*, BasicBlock*>>> defs, string varName){
-			for(pair<BasicBlock*, BasicBlock*>> p : defs[varName])
-				def_use[varName].insert(p);
+			for(pair<BasicBlock*, BasicBlock*> p : defs[varName])
+				(*def_use)[varName].insert(p);
 		}
 
-		set<Node*> getFunctionExitNodes(Function &F){
-			set<Node*> exitNodes;
-
-		  for(BasicBlock& b : *f) {
-		    if (b.getTerminator()->getNumSuccessors() == 0) {
-		      exitNodes.insert(Node(b, b.getTerminator()));
-		    }
-		  }
-
-			return exitNodes;
-		}
 
 	};
 
