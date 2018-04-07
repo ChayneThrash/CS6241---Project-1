@@ -188,7 +188,7 @@ private:
     }
     CallInst* callInst = dyn_cast<CallInst>(i);
     Function* f = callInst->getCalledFunction();
-    if (f == nullptr && !f->isDeclaration()) {
+    if (f == nullptr || f->isDeclaration()) {
       return false;
     }
     return true;

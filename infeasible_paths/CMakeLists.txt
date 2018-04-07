@@ -1,1 +1,2 @@
 add_library(LLVMInfeasableTest MODULE InfeasibleTest.cpp)
+add_library(LLVMDefUse MODULE InterproceduralDemandDrivenDefUseRun.cpp)
