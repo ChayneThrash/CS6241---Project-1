@@ -68,7 +68,7 @@ Instructor: & Professor Santosh \textsc{Pande} % Instructor/supervisor
 In this project, we first implemented an algorithm that detects both the inter- and intra- procedural infeasible paths using branch correlation. Utilizing this information, we implemented a demand-driven def-use analysis that discards the chains along infeasible paths and therefor give a more accurate data flow information. Both algorithms were introduced in the paper "Refining Data Flow Information Using Infeasible Paths" by Gupta, Soffa, and Bodik. Finally, we improved the introduced infeasible path detection algorithm by accounting for more cases than the ones mentioned in the paper. We show our improved version with test results in this report.
 
 \subsection{Improved Infeasible Paths Detection}
-We improved the algorithm presented in the paper by accounting for more cases during the backward propagation while detecting infeasible paths. 
+We improved the algorithm presented in the paper by adding the ability to handle binary operations with constants to the infeasible path detection algorithm. Specifically, the added operations were addition, subtraction, multiplication, and both signed and unsigned division. This improvement was implemented by adding a stack to the query that kept track of these binary operations. Whenever one of these operations is encountered, both the opcode and the constant involved are placed onto the stack. Whenever the query variable is assigned to a constant, the stack is replayed onto the assigned constant. The resulting value is then used to determine query resolution. 
 
 \subsection{Test Results}
 ~\\~
