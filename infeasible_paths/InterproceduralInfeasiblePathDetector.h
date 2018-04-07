@@ -341,6 +341,7 @@ namespace {
         std::stack<Node*> callStack = std::get<2>(workItem);
 
         QueryResolution resolution;
+
         if(!resolve(*n, currentValue, resolution)) {
           if (n->basicBlock == topMostBasicBlock && n->programPointInBlock == findFunctionCallTopDown(topMostBasicBlock)) {
             queriesResolvedInNode.insert(std::make_pair(currentValue, n));
@@ -454,8 +455,8 @@ namespace {
                 summaryQuery.lhs = returnInst->getReturnValue();
               }
               querySubstitutedToPreds[n] = summaryQuery;
-              return substituedQueries;
             }
+            return substituedQueries;
           }
         }
         else if (q.lhs == &i) {
