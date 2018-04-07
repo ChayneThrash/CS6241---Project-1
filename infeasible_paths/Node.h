@@ -270,7 +270,6 @@ private:
         if (&i == programPointInBlock) {
           CallInst* callInst = dyn_cast<CallInst>(&i);
           Function* f = callInst->getCalledFunction();
-
           Node* entryNode = createFunctionEntryNode(f, this);
           addSuccessor(entryNode);
 

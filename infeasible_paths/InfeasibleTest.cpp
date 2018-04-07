@@ -43,13 +43,15 @@ namespace {
         if (terminator->getNumSuccessors() == 1 || terminator->getOpcode() != Instruction::Br) {
           continue;
         }
-
+        if (F.getName() != "add_procedure_stats_to_list" || b.getName() != "for.body") {
+          continue;
+        }
+        errs()<< "BasicBlock: " << F.getName() << "." << b.getName();
         InfeasiblePathResult result;
         InfeasiblePathDetector detector;
         Node initialNode(&b, nullptr);
         detector.detectPaths(initialNode, result, *m);
 
-        errs()<< "BasicBlock: " << F.getName() << "." << b.getName();
         errs()<< " Start set: ";
         for(std::pair< std::pair<Node*, Node*>, std::set<std::tuple<Query, QueryResolution, std::stack<Node*>>>> startingPoints : result.startSet) {
           for (std::tuple<Query, QueryResolution, std::stack<Node*>> startValue : startingPoints.second) {

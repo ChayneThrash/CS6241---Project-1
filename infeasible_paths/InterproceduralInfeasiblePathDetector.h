@@ -190,7 +190,6 @@ namespace {
       std::map<std::pair<Function*, Query>, std::set<Query>> functionQueryCache;
 
       executeStepOne(worklist, visited, initialQuery, result, functionQueryCache);
-      
       // Step 2
       std::set<Node*> step2WorkList;
       for (std::pair<const std::pair<Query, Node*>, std::set<std::pair<QueryResolution, std::stack<Node*>>>> resolvedNode : queryResolutions) {
@@ -351,8 +350,6 @@ namespace {
 
           std::map<Node*, Query> substituteMap;
           currentValue = substitute(*n, currentValue, substituteMap);
-          
-
           if (n->isEntryOfFunction) {
             // Reached the starting point of the function under analysis.
             if (callStack.size() == 0) {
@@ -448,7 +445,7 @@ namespace {
         else if (i.getOpcode() == Instruction::Call) {
           CallInst* callInst = dyn_cast<CallInst>(&i);
           Function* f = callInst->getCalledFunction();
-          if (f != nullptr) {
+          if (f != nullptr && !f->isDeclaration()) {
             for(Node* n : basicBlock.getPredecessors()) {
               Query summaryQuery = q;
               summaryQuery.isSummaryNodeQuery = true;
