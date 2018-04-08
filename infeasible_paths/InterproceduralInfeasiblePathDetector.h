@@ -190,7 +190,7 @@ namespace {
       std::map<std::pair<Function*, Query>, std::set<Query>> functionQueryCache;
 
       executeStepOne(worklist, visited, initialQuery, result, functionQueryCache);
-      errs() << "here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!s\n";
+
       // Step 2
       std::set<Node*> step2WorkList;
       for (std::pair<const std::pair<Query, Node*>, std::set<std::pair<QueryResolution, std::stack<Node*>>>> resolvedNode : queryResolutions) {

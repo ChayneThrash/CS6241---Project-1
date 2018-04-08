@@ -168,6 +168,8 @@ namespace{
 
 
 		bool resolve(Value& v, pair<Node*, Node*> e, DUQuery &q, Node& u, bool isLocal){
+			if(e.first == nullptr)
+				return false;
 
 			// Did we follow an infeasible path? 
 			tuple<Node*, Node*, stack<Node*>> resultKey = make_tuple(e.first, e.second, key);
@@ -176,7 +178,7 @@ namespace{
 				return false;
 
 			// Remove paths in progress that are no longer followed
-				IPP presentSet = result.getPresentSetFor(resultKey);
+			IPP presentSet = result.getPresentSetFor(resultKey);
 			get<0>(q) = intersection_(get<0>(q), presentSet);
 
 			// Add paths in progress that are started at edge e
@@ -193,7 +195,11 @@ namespace{
 			}
 
 			// Add to def-use and terminate if we found a def 
-			vector<Instruction*> instructions =  e.first->getReversedInstructions();
+			auto instructions =  e.first->getReversedInstructions();
+
+			if(e.first->getReversedInstructions().empty())
+				return true;
+
 			for(vector<Instruction*>::reverse_iterator i = instructions.rbegin(); i != instructions.rend(); ++i)
 					if ((*i)->getOpcode() == Instruction::Store)
 							if((*i)->getOperand(1)->getName() == v.getName()){
