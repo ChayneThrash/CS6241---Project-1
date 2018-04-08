@@ -79,10 +79,10 @@ namespace {
     ConstantInt* rhs;
     bool isSummaryNodeQuery;
     Query* originalQuery;
-    std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations;
+    // std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations;
 
     bool operator==(const Query& other) const {
-      return this->lhs == other.lhs && this->rhs == other.rhs && this->queryOperator == other.queryOperator && this->isSummaryNodeQuery == other.isSummaryNodeQuery && this->intermediateOperations == other.intermediateOperations;
+      return this->lhs == other.lhs && this->rhs == other.rhs && this->queryOperator == other.queryOperator && this->isSummaryNodeQuery == other.isSummaryNodeQuery;// && this->intermediateOperations == other.intermediateOperations;
     }
 
     bool operator<(const Query& other) const {
@@ -90,10 +90,7 @@ namespace {
         if (this->queryOperator == other.queryOperator) {
           if (this->rhs == other.rhs) {
             if (this->isSummaryNodeQuery == other.isSummaryNodeQuery) {
-              if (this->intermediateOperations == other.intermediateOperations) {
-                return false;
-              }
-              return this->intermediateOperations < other.intermediateOperations;
+              return false;
             }
             return this->isSummaryNodeQuery < other.isSummaryNodeQuery;
           }
@@ -165,7 +162,7 @@ namespace {
 
       // Work list contains two nodes since whenever a query gets propagated up, it should continue to the proper call site so we save
       // the call site with it.
-      std::queue<std::tuple<Node*, Query, std::stack<Node*>>> worklist;
+      std::stack<std::tuple<Node*, Query, std::stack<Node*>>> worklist;
       std::map<Node*, std::vector<Query>> visited;
 
       Query initialQuery;
@@ -325,10 +322,10 @@ namespace {
 
     }
 
-    void executeStepOne(std::queue<std::tuple<Node*, Query, std::stack<Node*>>>& worklist, std::map<Node*, std::vector<Query>>& visited, 
+    void executeStepOne(std::stack<std::tuple<Node*, Query, std::stack<Node*>>>& worklist, std::map<Node*, std::vector<Query>>& visited, 
                         Query initialQuery, InfeasiblePathResult& result, std::map<std::pair<Function*, Query>, std::set<Query>>& functionQueryCache) {
       while(worklist.size() != 0) {
-        std::tuple<Node*, Query, std::stack<Node*>> workItem = worklist.front();
+        std::tuple<Node*, Query, std::stack<Node*>> workItem = worklist.top();
         worklist.pop();
 
         Node* n = std::get<0>(workItem);
@@ -370,6 +367,9 @@ namespace {
             }
             else {
               functionQueryCache[std::make_pair(n->basicBlock->getParent(), initialQuery)].insert(currentValue);
+              Node* callSite = callStack.top();
+              callStack.pop();
+              worklist.push(std::make_tuple(callSite, currentValue, callStack));
             }
           }
           else {
@@ -377,21 +377,17 @@ namespace {
             if (preds.size() > 0) {
               Node* p = *(preds.begin());
               if (p->isExitOfFunction) {
-                std::queue<std::tuple<Node*, Query, std::stack<Node*>>> worklistForFunction;
-                callStack.push(n->getPredecessorBypassingFunctionCall());
+                auto callStackCopy = callStack;
+                callStackCopy.push(n->getPredecessorBypassingFunctionCall());
                 for(Node* pred : preds) {
                   if (std::find(visited[pred].begin(), visited[pred].end(), substituteMap[pred]) == visited[pred].end()) {
                     visited[pred].push_back(substituteMap[pred]);
-                    worklistForFunction.push(std::make_tuple(pred, substituteMap[pred], callStack));
+                    worklist.push(std::make_tuple(pred, substituteMap[pred], callStackCopy));
                   }
-                }
-                if (worklistForFunction.size() > 0) {
-                  executeStepOne(worklistForFunction, visited, currentValue, result, functionQueryCache);
                 }
 
                 Function* functionCalled = p->basicBlock->getParent();
                 Node* predecessor = n->getPredecessorBypassingFunctionCall();
-                callStack.pop();
                 for(Query q : functionQueryCache[std::make_pair(functionCalled, currentValue)]) {
                   if (std::find(visited[predecessor].begin(), visited[predecessor].end(), q) == visited[predecessor].end()) {
                     visited[predecessor].push_back(q);
@@ -456,7 +452,7 @@ namespace {
             for(Node* n : basicBlock.getPredecessors()) {
               Query summaryQuery = q;
               summaryQuery.isSummaryNodeQuery = true;
-              if (&i == q.lhs) {
+              if (&i == q.lhs && isa<ReturnInst>(n->getReversedInstructions().front())) {
                 ReturnInst* returnInst = dyn_cast<ReturnInst>(n->getReversedInstructions().front());
                 summaryQuery.lhs = returnInst->getReturnValue();
               }
@@ -502,76 +498,76 @@ namespace {
               }
             }
           }
-          else if (i.getOpcode() == Instruction::Add) {
+          // else if (i.getOpcode() == Instruction::Add) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
-          else if (i.getOpcode() == Instruction::Sub) {
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
+          // else if (i.getOpcode() == Instruction::Sub) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
-          else if (i.getOpcode() == Instruction::Mul) {
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
+          // else if (i.getOpcode() == Instruction::Mul) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
-          else if (i.getOpcode() == Instruction::UDiv) {
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
+          // else if (i.getOpcode() == Instruction::UDiv) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
-          else if (i.getOpcode() == Instruction::SDiv) {
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
+          // else if (i.getOpcode() == Instruction::SDiv) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
         }
       }
       for (Node* n : basicBlock.getPredecessors()) {
@@ -581,6 +577,9 @@ namespace {
     }
 
     bool resolve(Node& basicBlock, Query q, QueryResolution& resolution) {
+      if (&basicBlock == nullptr) {
+        errs() << "seriously????\n";
+      }
       for (Instruction* iIter : basicBlock.getReversedInstructions()) {
         Instruction& i = *iIter;
         if (i.getOpcode() == Instruction::Store && i.getOperand(1) == q.lhs) {
@@ -665,146 +664,146 @@ namespace {
               }
             }
           }
-          else if (i.getOpcode() == Instruction::Add) {
+          // else if (i.getOpcode() == Instruction::Add) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
-              resolution = QueryUndefined;
-              return true;
-            }
+          //   if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+          //     resolution = QueryUndefined;
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
-              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
-              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+          //   if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+          //     ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+          //     ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
 
-              APInt addResult = c1->getValue() + c2->getValue();
-              resolution = resolveConstantAssignment(addResult, q);
-              return true;
-            }
+          //     APInt addResult = c1->getValue() + c2->getValue();
+          //     resolution = resolveConstantAssignment(addResult, q);
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
-          else if (i.getOpcode() == Instruction::Sub) {
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
+          // else if (i.getOpcode() == Instruction::Sub) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
-              resolution = QueryUndefined;
-              return true;
-            }
+          //   if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+          //     resolution = QueryUndefined;
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
-              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
-              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+          //   if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+          //     ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+          //     ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
 
-              APInt addResult = c1->getValue() - c2->getValue();
-              resolution = resolveConstantAssignment(addResult, q);
-              return true;
-            }
+          //     APInt addResult = c1->getValue() - c2->getValue();
+          //     resolution = resolveConstantAssignment(addResult, q);
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
-          else if (i.getOpcode() == Instruction::Mul) {
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
+          // else if (i.getOpcode() == Instruction::Mul) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
-              resolution = QueryUndefined;
-              return true;
-            }
+          //   if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+          //     resolution = QueryUndefined;
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
-              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
-              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+          //   if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+          //     ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+          //     ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
 
-              APInt multResult = c1->getValue() * c2->getValue();
-              resolution = resolveConstantAssignment(multResult, q);
-              return true;
-            }
+          //     APInt multResult = c1->getValue() * c2->getValue();
+          //     resolution = resolveConstantAssignment(multResult, q);
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
-          else if (i.getOpcode() == Instruction::UDiv) {
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
+          // else if (i.getOpcode() == Instruction::UDiv) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
-              resolution = QueryUndefined;
-              return true;
-            }
+          //   if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+          //     resolution = QueryUndefined;
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
-              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
-              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+          //   if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+          //     ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+          //     ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
 
-              APInt multResult = c1->getValue().udiv(c2->getValue());
-              resolution = resolveConstantAssignment(multResult, q);
-              return true;
-            }
+          //     APInt multResult = c1->getValue().udiv(c2->getValue());
+          //     resolution = resolveConstantAssignment(multResult, q);
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
-          else if (i.getOpcode() == Instruction::SDiv) {
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
+          // else if (i.getOpcode() == Instruction::SDiv) {
 
-            Value* op1 = i.getOperand(0);
-            Value* op2 = i.getOperand(1);
+          //   Value* op1 = i.getOperand(0);
+          //   Value* op2 = i.getOperand(1);
 
-            if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
-              resolution = QueryUndefined;
-              return true;
-            }
+          //   if (!isa<ConstantInt>(op1) && !isa<ConstantInt>(op2)) {
+          //     resolution = QueryUndefined;
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
-              ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
-              ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
+          //   if (isa<ConstantInt>(op1) && isa<ConstantInt>(op1)) {
+          //     ConstantInt* c1 = dyn_cast<ConstantInt>(op1);
+          //     ConstantInt* c2 = dyn_cast<ConstantInt>(op2);
 
-              APInt multResult = c1->getValue().sdiv(c2->getValue());
-              resolution = resolveConstantAssignment(multResult, q);
-              return true;
-            }
+          //     APInt multResult = c1->getValue().sdiv(c2->getValue());
+          //     resolution = resolveConstantAssignment(multResult, q);
+          //     return true;
+          //   }
 
-            if (isa<ConstantInt>(op1)) {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
-              q.lhs = op2;
-            }
-            else {
-              q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
-              q.lhs = op1;
-            }
-          }
+          //   if (isa<ConstantInt>(op1)) {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op1)));
+          //     q.lhs = op2;
+          //   }
+          //   else {
+          //     q.intermediateOperations.push(std::make_pair(i.getOpcode(), dyn_cast<ConstantInt>(op2)));
+          //     q.lhs = op1;
+          //   }
+          // }
           else {
             resolution = QueryUndefined;
             return true;
@@ -829,21 +828,21 @@ namespace {
     }
 
     QueryResolution resolveConstantAssignment(const APInt& constant, Query& q) {
-      std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations = q.intermediateOperations;
+      // std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations = q.intermediateOperations;
       APInt value = constant;
-      while (intermediateOperations.size() > 0) {
-        std::pair<unsigned, ConstantInt*> operation = intermediateOperations.top();
-        intermediateOperations.pop();
-        switch(operation.first)
-        {
-          case Instruction::Add: value = value + operation.second->getValue(); break;
-          case Instruction::Sub: value = value - operation.second->getValue(); break;
-          case Instruction::Mul: value = value * operation.second->getValue(); break;
-          case Instruction::UDiv: value = value.udiv(operation.second->getValue()); break;
-          case Instruction::SDiv: value = value.sdiv(operation.second->getValue()); break;
-          default: break;
-        }
-      }
+      // while (intermediateOperations.size() > 0) {
+      //   std::pair<unsigned, ConstantInt*> operation = intermediateOperations.top();
+      //   intermediateOperations.pop();
+      //   switch(operation.first)
+      //   {
+      //     case Instruction::Add: value = value + operation.second->getValue(); break;
+      //     case Instruction::Sub: value = value - operation.second->getValue(); break;
+      //     case Instruction::Mul: value = value * operation.second->getValue(); break;
+      //     case Instruction::UDiv: value = value.udiv(operation.second->getValue()); break;
+      //     case Instruction::SDiv: value = value.sdiv(operation.second->getValue()); break;
+      //     default: break;
+      //   }
+      // }
       switch(q.queryOperator)
       {
         case IsTrue: return (value.getBoolValue()) ? QueryFalse : QueryTrue;
@@ -935,20 +934,20 @@ namespace {
       APInt value;
       if (current.rhs != nullptr) {
         value = current.rhs->getValue();
-        std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations = q.intermediateOperations;
-        while (intermediateOperations.size() > 0) {
-          std::pair<unsigned, ConstantInt*> operation = intermediateOperations.top();
-          intermediateOperations.pop();
-          switch(operation.first)
-          {
-            case Instruction::Add: value = value + operation.second->getValue(); break;
-            case Instruction::Sub: value = value - operation.second->getValue(); break;
-            case Instruction::Mul: value = value * operation.second->getValue(); break;
-            case Instruction::UDiv: value = value.udiv(operation.second->getValue()); break;
-            case Instruction::SDiv: value = value.sdiv(operation.second->getValue()); break;
-            default: break;
-          }
-        }
+        // std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations = q.intermediateOperations;
+        // while (intermediateOperations.size() > 0) {
+        //   std::pair<unsigned, ConstantInt*> operation = intermediateOperations.top();
+        //   intermediateOperations.pop();
+        //   switch(operation.first)
+        //   {
+        //     case Instruction::Add: value = value + operation.second->getValue(); break;
+        //     case Instruction::Sub: value = value - operation.second->getValue(); break;
+        //     case Instruction::Mul: value = value * operation.second->getValue(); break;
+        //     case Instruction::UDiv: value = value.udiv(operation.second->getValue()); break;
+        //     case Instruction::SDiv: value = value.sdiv(operation.second->getValue()); break;
+        //     default: break;
+        //   }
+        // }
       }
 
       bool isTrueBranch = currentNode == n->getTrueEdge();

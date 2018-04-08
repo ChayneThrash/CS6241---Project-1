@@ -79,6 +79,7 @@ struct Node {
           delete node.second;
         }
       }
+      delete allNodes;
     }
   }
 
@@ -136,7 +137,7 @@ struct Node {
       populateSuccessors();
       successorsInitialized = true;
     }
-    return (*allNodes)[std::make_pair(trueDestination, i)];
+    return getOrCreateNode(trueDestination, i);
   }
 
   Node* getFalseEdge() {
@@ -148,7 +149,7 @@ struct Node {
       populateSuccessors();
       successorsInitialized = true;
     }
-    return (*allNodes)[std::make_pair(falseDestination, i)];
+    return getOrCreateNode(falseDestination, i);
   }
 
   Node* getNodeFor(BasicBlock* bb, Instruction* i) {
@@ -168,7 +169,8 @@ struct Node {
 
   Node* getPredecessorBypassingFunctionCall() {
     Instruction* callSite = instructionsReversed.back();
-    return (*allNodes)[std::make_pair(basicBlock, callSite)];
+
+    return getOrCreateNode(basicBlock, callSite);
   }
 
 private:
@@ -321,7 +323,8 @@ private:
   }
 
   void addPredecessor(BasicBlock* bb, Instruction* i) {
-    predecessors.insert(getOrCreateNode(bb, i));
+    Node* n = getOrCreateNode(bb, i);
+    predecessors.insert(n);
   }
 
   void addSuccessor(BasicBlock* bb, Instruction* i) {
@@ -332,6 +335,10 @@ private:
     Node* node;
     if (allNodes->count(std::make_pair(bb, i)) > 0) {
       node = (*allNodes)[std::make_pair(bb, i)];
+      if (node == nullptr) {
+        node = new Node(bb, i, false, allNodes);
+        (*allNodes)[std::make_pair(bb, nullptr)] = node;
+      }
     }
     else {
       node = new Node(bb, i, false, allNodes);
@@ -366,6 +373,10 @@ private:
     Node* node;
     if (allNodes->count(std::make_pair(bb, nullptr)) > 0) {
       node = (*allNodes)[std::make_pair(bb, nullptr)];
+      if (node == nullptr) {
+        node = new Node(bb, allNodes, returnToPoint);
+        (*allNodes)[std::make_pair(bb, nullptr)] = node;
+      }
       node->addSuccessor(returnToPoint);
     }
     else {
@@ -381,6 +392,10 @@ private:
     Instruction* i = findFunctionCallTopDown(bb);
     if (allNodes->count(std::make_pair(bb, i)) > 0) {
       node = (*allNodes)[std::make_pair(bb, i)];
+      if (node == nullptr) {
+        node = new Node(bb, i, allNodes);
+        (*allNodes)[std::make_pair(bb, i)] = node;  
+      }
     }
     else {
       node = new Node(bb, i, allNodes);
