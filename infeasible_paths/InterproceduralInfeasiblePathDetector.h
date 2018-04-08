@@ -190,6 +190,7 @@ namespace {
       std::map<std::pair<Function*, Query>, std::set<Query>> functionQueryCache;
 
       executeStepOne(worklist, visited, initialQuery, result, functionQueryCache);
+      errs() << "here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!s\n";
       // Step 2
       std::set<Node*> step2WorkList;
       for (std::pair<const std::pair<Query, Node*>, std::set<std::pair<QueryResolution, std::stack<Node*>>>> resolvedNode : queryResolutions) {
@@ -934,19 +935,23 @@ namespace {
       q.rhs = nullptr;
       std::map<Node*, Query> temp;
 
-      std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations = q.intermediateOperations;
-      APInt value = current.rhs->getValue();
-      while (intermediateOperations.size() > 0) {
-        std::pair<unsigned, ConstantInt*> operation = intermediateOperations.top();
-        intermediateOperations.pop();
-        switch(operation.first)
-        {
-          case Instruction::Add: value = value + operation.second->getValue(); break;
-          case Instruction::Sub: value = value - operation.second->getValue(); break;
-          case Instruction::Mul: value = value * operation.second->getValue(); break;
-          case Instruction::UDiv: value = value.udiv(operation.second->getValue()); break;
-          case Instruction::SDiv: value = value.sdiv(operation.second->getValue()); break;
-          default: break;
+
+      APInt value;
+      if (current.rhs != nullptr) {
+        value = current.rhs->getValue();
+        std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations = q.intermediateOperations;
+        while (intermediateOperations.size() > 0) {
+          std::pair<unsigned, ConstantInt*> operation = intermediateOperations.top();
+          intermediateOperations.pop();
+          switch(operation.first)
+          {
+            case Instruction::Add: value = value + operation.second->getValue(); break;
+            case Instruction::Sub: value = value - operation.second->getValue(); break;
+            case Instruction::Mul: value = value * operation.second->getValue(); break;
+            case Instruction::UDiv: value = value.udiv(operation.second->getValue()); break;
+            case Instruction::SDiv: value = value.sdiv(operation.second->getValue()); break;
+            default: break;
+          }
         }
       }
 
