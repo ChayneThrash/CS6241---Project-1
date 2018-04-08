@@ -43,9 +43,7 @@ namespace {
         if (terminator->getNumSuccessors() == 1 || terminator->getOpcode() != Instruction::Br) {
           continue;
         }
-        if (F.getName() != "add_procedure_stats_to_list" || b.getName() != "for.body") {
-          continue;
-        }
+        
         errs()<< "BasicBlock: " << F.getName() << "." << b.getName();
         InfeasiblePathResult result;
         InfeasiblePathDetector detector;

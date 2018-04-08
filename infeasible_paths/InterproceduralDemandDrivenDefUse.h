@@ -52,7 +52,11 @@ namespace{
 			this->m = &m;
 
 			set<Value*> local_def; 
+			if (B.getInstList().size() == 0) {
+				return;
+			}
 
+			Node leaderNode(&B, nullptr);
 			// Iterate over used variables, call demand driven analysis on each 
 			for(BasicBlock::iterator ins = B.begin(); ins != B.end(); ++ins){
 					// Did we find an allocate instruction? Means that the scope of this 
@@ -72,14 +76,14 @@ namespace{
 							if(local_def.find(op) != local_def.end() && isLocal)
 								def_use[op->getName()].insert(make_pair(&B, &B));
 							else
-								demandDrivenDefUseAnalysis(*op, Node(&B, &(*ins)), isLocal);
+								demandDrivenDefUseAnalysis(*op, *(leaderNode.getNodeFor(&B, &(*ins))), isLocal);
 						}
 					}		
 			
 			}
     }
 
-		void demandDrivenDefUseAnalysis(Value& v, Node u, bool isLocal){
+		void demandDrivenDefUseAnalysis(Value& v, Node& u, bool isLocal){
 			detector.detectPaths(u, result, *m);
 
 		  worklist = queue<pair<Node*, DUQuery>>();
@@ -193,23 +197,26 @@ namespace{
 			}
 
 			// Add to def-use and terminate if we found a def 
-			vector<Instruction*> instructions =  e.first->getReversedInstructions();
-			for(vector<Instruction*>::reverse_iterator i = instructions.rbegin(); i != instructions.rend(); ++i)
-					if ((*i)->getOpcode() == Instruction::Store)
-							if((*i)->getOperand(1)->getName() == v.getName()){
-								if(isLocal && (e.first->basicBlock->getParent() != u.basicBlock->getParent()))
-									continue;
-								pair<BasicBlock*, BasicBlock*> defUse = make_pair(e.first->basicBlock, u.basicBlock);
-								(*def_use)[v.getName()].insert(defUse);
-								
-								// Is it a summery node query?									
-								if(get<2>(q) && !isLocal){
-									SN s = get<1>(q);
-									get<0>(s)[v.getName()].insert(defUse);
-								}
+			const vector<Instruction*>& instructions =  e.first->getReversedInstructions();
+			for(vector<Instruction*>::const_reverse_iterator i = instructions.rbegin(); i != instructions.rend(); ++i) {
+				if ((*i)->getOpcode() == Instruction::Store) {
+					if((*i)->getOperand(1)->getName() == v.getName()){
+						if(isLocal && (e.first->basicBlock->getParent() != u.basicBlock->getParent()))
+							continue;
+						pair<BasicBlock*, BasicBlock*> defUse = make_pair(e.first->basicBlock, u.basicBlock);
+						(*def_use)[v.getName()].insert(defUse);
+						
+						// Is it a summery node query?									
+						if(get<2>(q) && !isLocal){
+							SN s = get<1>(q);
+							get<0>(s)[v.getName()].insert(defUse);
+						}
 
-								return false;
-							}
+						return false;
+					}
+				}
+			}
+					
 
 			return true;
 		}

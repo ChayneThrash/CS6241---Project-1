@@ -65,20 +65,12 @@ namespace {
       rhs = nullptr;
       queryOperator = IsTrue;
       isSummaryNodeQuery = false;
-      originalQuery = nullptr;
-    }
-
-    ~Query() {
-      if (originalQuery != nullptr) {
-        delete originalQuery;
-      }
     }
 
     Value* lhs;
     QueryOperator queryOperator;
     ConstantInt* rhs;
     bool isSummaryNodeQuery;
-    Query* originalQuery;
     std::stack<std::pair<unsigned, ConstantInt*>> intermediateOperations;
 
     bool operator==(const Query& other) const {
@@ -190,7 +182,6 @@ namespace {
       std::map<std::pair<Function*, Query>, std::set<Query>> functionQueryCache;
 
       executeStepOne(worklist, visited, initialQuery, result, functionQueryCache);
-      errs() << "here!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!s\n";
       // Step 2
       std::set<Node*> step2WorkList;
       for (std::pair<const std::pair<Query, Node*>, std::set<std::pair<QueryResolution, std::stack<Node*>>>> resolvedNode : queryResolutions) {
