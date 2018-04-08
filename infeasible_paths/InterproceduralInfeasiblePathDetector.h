@@ -147,7 +147,6 @@ namespace {
     std::set<std::pair<Query, Node*>> queriesResolvedInNode;
     Node* trueDestinationNode;
     Node* falseDestinationNode;
-    BasicBlock* topMostBasicBlock;
     Node* initialNode;
     std::set<Query> queriesPropagatedToCallers;
 
@@ -159,11 +158,6 @@ namespace {
       if (!initialNode->endsWithConditionalBranch()) {
         return;
       }
-      Function* main = m.getFunction("main");
-      if (main == nullptr) {
-        errs() << "ERROR: could not get main...\n";
-      }
-      topMostBasicBlock = &(main->getEntryBlock());
 
       queryResolutions.clear();
       queriesResolvedInNode.clear();
@@ -344,22 +338,33 @@ namespace {
         QueryResolution resolution;
 
         if(!resolve(*n, currentValue, resolution)) {
-          if (n->basicBlock == topMostBasicBlock && n->programPointInBlock == findFunctionCallTopDown(topMostBasicBlock)) {
-            queriesResolvedInNode.insert(std::make_pair(currentValue, n));
-            std::stack<Node*> emptyCallStack;
-            queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(QueryUndefined, emptyCallStack));
-          }
 
           std::map<Node*, Query> substituteMap;
           currentValue = substitute(*n, currentValue, substituteMap);
           if (n->isEntryOfFunction) {
+
+
             // Reached the starting point of the function under analysis.
             if (callStack.size() == 0) {
-              for(Node* pred : n->getPredecessors()) {
-                queriesPropagatedToCallers.insert(substituteMap[pred]);
-                if (std::find(visited[pred].begin(), visited[pred].end(), substituteMap[pred]) == visited[pred].end()) {
-                  visited[pred].push_back(substituteMap[pred]);
-                  worklist.push(std::make_tuple(pred, substituteMap[pred], callStack));
+              if (n->getPredecessors().size() == 0) {
+                resolution = QueryUndefined;
+                if (n->basicBlock->getParent()->getName() == "main" && isa<GlobalVariable>(currentValue.lhs)) {
+                  GlobalVariable* global = dyn_cast<GlobalVariable>(currentValue.lhs);
+                  if (isa<ConstantInt>(global->getInitializer())) {
+                    resolution = resolveConstantAssignment(dyn_cast<ConstantInt>(global->getInitializer()), currentValue);
+                  }
+                }
+                queriesResolvedInNode.insert(std::make_pair(currentValue, n));
+                std::stack<Node*> emptyCallStack;
+                queryResolutions[std::make_pair(currentValue, n)].insert(std::make_pair(resolution, emptyCallStack));
+              }
+              else{
+                for(Node* pred : n->getPredecessors()) {
+                  queriesPropagatedToCallers.insert(substituteMap[pred]);
+                  if (std::find(visited[pred].begin(), visited[pred].end(), substituteMap[pred]) == visited[pred].end()) {
+                    visited[pred].push_back(substituteMap[pred]);
+                    worklist.push(std::make_tuple(pred, substituteMap[pred], callStack));
+                  }
                 }
               }
             }
@@ -802,15 +807,6 @@ namespace {
           }
           else {
             resolution = QueryUndefined;
-            return true;
-          }
-        }
-      }
-      if (basicBlock.basicBlock == topMostBasicBlock && basicBlock.programPointInBlock == findFunctionCallTopDown(topMostBasicBlock)) {
-        if (isa<GlobalVariable>(q.lhs)) {
-          GlobalVariable* global = dyn_cast<GlobalVariable>(q.lhs);
-          if (isa<ConstantInt>(global->getInitializer())) {
-            resolution = resolveConstantAssignment(dyn_cast<ConstantInt>(global->getInitializer()), q);
             return true;
           }
         }
